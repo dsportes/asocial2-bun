@@ -1,0 +1,105 @@
+import Log from '../fw/log'
+
+import type { idx, collection } from '../fw/docDescriptor'
+import { DocDescriptor, FormType, propType } from '../fw/docDescriptor'
+
+let exc: Error | null = null
+
+let svc = DocDescriptor.declareService('AS2')
+
+try {
+  const nd = DocDescriptor.size()
+  const nf = FormType.size()
+
+  new DocDescriptor(svc,
+    { name: 'Status', sync: true, pk: [], nohash: true }
+  )
+
+  new DocDescriptor(svc,
+    { name: 'Subs', pk: ['sessionId'], nohash: true },
+    null,
+    new Map<string, idx>([
+      ['defs', { type: propType.LIST}]
+    ])
+  )
+
+  new DocDescriptor(svc, 
+    { name: 'Credential', pk: ['credId'], nohash: true, subClassBy: 'docCl' },
+    null,
+    new Map<string, idx>([
+      ['doc', { type: propType.HASH, key: ['docCl', 'docPk'], nohash: true }],
+    ])
+  )
+
+  new DocDescriptor(svc, 
+    { name: 'Form', pk: ['formId'], nohash: true, subClassBy: 'type' },
+    null,
+    new Map<string, idx>([
+      ['creds', { type: propType.LIST, nohash: true }]
+    ])
+  )
+
+  new DocDescriptor(svc, { name: 'Section', virtual: true, enumCred: 'Redaction' })
+  new DocDescriptor(svc, { name: 'Sujet', virtual: true, enumCred: 'CoDir' })
+
+  new DocDescriptor(svc, 
+    { name: 'Auteur', pk: ['autid'], sync: true, embedCreds: true },
+    new Map<string, collection>([
+      ['section',  { key: ['section'], mutable: true, class: 'Section' }]
+    ]),
+    new Map<string, idx>([
+      ['nom',  { type: propType.STRING, key: ['nomAuteur'], testable: true }]
+    ])
+  )
+
+  /* Publication
+  - Propriétés:
+    id : générée aléatoirement.
+    autid: ID de l'auteur.
+    sujets: liste des sujets traités par la publication.
+    resume: court de résumé de la publication.
+    fichiers: fichiers attachés et leur tailles.
+    volume: volume total des fichiers attachés.
+  - Clés _identifiantes et de synchronisation_
+    - pk: [id]
+    - auteur: autid
+    - sujets: [sujets]
+  - Index _de filtrage_
+    - volume: volume, entier
+  */
+  new DocDescriptor(svc, 
+    { name: 'Publication', pk: ['pubid'], sync: true },
+    new Map<string, collection>([
+      ['sujets',  { key: ['sujets'], list: true, mutable: true, class: 'Sujet' }],
+      ['auteur',  { key: ['autid'], mutable: false, class: "Auteur" }]
+    ]),
+    new Map<string, idx>([
+      ['volume',  { type: propType.INTEGER, key: ['volume'] }]
+    ])
+  )
+
+  new DocDescriptor(svc,
+    { name: 'Redaction', virtual: true }
+  )
+
+  new DocDescriptor(svc,
+    { name: 'CoDir', virtual: true }
+  )
+
+  new FormType(svc, 'membrecodir', svc + '_' + 'ad', 'k1', ['A'])
+  new FormType(svc, 'membreredaction', svc + '_' + 'ad', 'k1', ['A'])
+  new FormType(svc, 'auteur', svc + '_' + 'auteurs', 'k2', ['Redaction/1'])
+  // Un Auteur peut aussi nommer un co-auteur
+  new FormType(svc, 'coauteur', 'auteurs', 'k2', ['Redaction/1', 'Auteur/$1'])
+  
+  Log.info('AS2 document descriptors:' + (DocDescriptor.size() - nd) 
+    + ' forms descriptors:' + (FormType.size() - nf))
+
+} catch (e: any) {
+  exc = e
+}
+
+export const schemaExcAS2 = () : Error | null => {
+  if (exc)  Log.error('Schema Exception: ' + exc.toString())
+  return exc
+}
