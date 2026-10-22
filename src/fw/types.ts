@@ -22,7 +22,8 @@ export type BaseConfig = {
   FIRESTORE_EMULATOR_HOST?: string
 
   databases: Map<string, DbConnector> // DbConnector
-  storages: Map<string, STabstract> // IStGeneric
+  dbConnectorClasses: any // Objet : { sqlite: Cl1, ...: cl2 }
+  storages: Map<string, STabstract> 
 
   /*
 

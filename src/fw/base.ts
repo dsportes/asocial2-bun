@@ -71,17 +71,20 @@ export class AppExc {
   toString () { return this.message + (this.stack ? '\n' + this.stack : '')}
 }
 
+export class $ADocument {
+  get _docDescriptor () { return (this.constructor as any)['_docDescriptor'] }
+}
+
+/*
 export abstract class DbGeneric {
   org?: string
-
   async getConnexion (op: AbstractOperation, org?: string, cryptKey?: string) : Promise<DbConnexion | null> {
     return null
   }
-
   async connect () : Promise<void> {
   }
-
 }
+*/
 
 export abstract class DbConnector {
 
@@ -99,8 +102,8 @@ export abstract class DbConnector {
   }
 
   async getConnexion (op: AbstractOperation, org?: string, cryptKey?: string) 
-  : Promise<DbGeneric> {
-    const cnx = this.factory(this, op, cryptKey) as DbGeneric
+  : Promise<DbConnexion> {
+    const cnx = this.factory(this, op, cryptKey) as DbConnexion
     cnx.org = org || '' 
     await cnx.connect()
     op.db = cnx
@@ -120,6 +123,18 @@ export abstract class DbConnexion {
     this.key = !cryptKey ? this.connector.key : Buffer.from(cryptKey, 'base64')
     this.op = op
   }
+
+  quarter (d: Date) : number {
+    const y = d.getUTCFullYear() % 2000
+    const q = Math.floor(d.getUTCMonth() / 4)
+    return (y * 4) + q
+  }
+
+  /* Connexion à la DB */
+  async connect () : Promise<void> {}
+
+  /* Déconnexion de la DB */
+  async disconnect () : Promise<void> {}
 }
 
 /* Interface d'accès générique au Storage */

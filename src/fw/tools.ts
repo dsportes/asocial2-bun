@@ -1,29 +1,24 @@
 import { exit } from 'process'
 import Log from './log'
 import config from '../config'
+import { setup } from '../config2'
 
 import type { AbstractOperation } from './types'
-import { DbGeneric } from './base'
-import { testECDH, testSH } from './crypt'
-import { Registry } from '../src-fw/registry'
+import type { expList, expListQ } from './DBabstract'
+import { testECDH /*, testSH */ } from './crypt'
+import { Registry, topCl } from './registry'
 import { DocDescriptor } from './docDescriptor'
 
 import { parseArgs } from 'node:util'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'readline'
+
 // import path from 'path'
 // import { readFileSync, writeFileSync } from 'node:fs'
 // import { decode } from '@msgpack/msgpack'
 
-import { DbConnector, DbConnexion } from './base'
-// import { SQLiteConnector } from '../src-sqlite'
-// import { FirestoreConnector } from '../src-firestore'
-
-const topCl = (svc: string, docCl: string) : string => {
-  const i = docCl.indexOf('_')
-  const d = i === -1 ? docCl : docCl.substring(0, i)
-  return d.indexOf('$') === -1 ? svc + '$' + d : d
-}
+import { DbConnector } from './base'
+import type { DBabstract } from './DBabstract'
 
 /***************************************************************** */
 
@@ -51,8 +46,8 @@ export class Tools {
   simu: boolean
   connectors: Map<string, eltCnx> = new Map()
   op: ToolOperation | null = null
-  cnxIn: DbGeneric | null = null
-  cnxOut: DbGeneric | null = null
+  cnxIn: DBabstract | null = null
+  cnxOut: DBabstract | null = null
 
   constructor () {
     this.args = parseArgs({
@@ -60,6 +55,7 @@ export class Tools {
       options: {
         in: { type: 'string' },
         out: { type: 'string' },
+        dbType: { type: 'string'},
         simulation: { type: 'boolean', short: 's'}
       }
     })
@@ -91,16 +87,8 @@ export class Tools {
           await this.test1()
           break
         }
-        case 'schemaSqlite' : {
-          await this.schemaSqlite()
-          break
-        }
-        case 'schemaFirestore' : {
-          await this.schemaFirestore()
-          break
-        }
-        case 'schemaPG' : {
-          await this.schemaPG()
+        case 'genSchema' : {
+          await this.genSchema()
           break
         }
         case 'export-db' : {
@@ -159,7 +147,15 @@ export class Tools {
     Log.info('Avalable providers: ' + names.join(' '))
   }
 
-  async setCfgDb (io: string) : Promise<DbGeneric | null> {
+  async genSchema () {
+    const arg = this.args.values['dbType']
+    if (!arg) throw 'Argument --dbType non trouvé'
+    const cl = config.dbConnectorClasses[arg]
+    if (cl) await cl.genSchema()
+    else Log.error(arg + ' connector undeclared')
+  }
+
+  async setCfgDb (io: string) : Promise<DBabstract | null> {
     let org: string
     let site: string
     let cryptKey: string
@@ -185,9 +181,12 @@ export class Tools {
     if (!eltCnx)
       throw 'Argument --' + io + ' : Expected: org,provider,site : provider [' + x[1] + '] not declared'
 
-    const cnx = this.op ? eltCnx.dbc.getConnexion(this.op, org, cryptKey) : null
-    Log.info('DB' + io + ': ' + eltCnx.name + ' connected. org:' + org + ' site:' + site)
-    return cnx
+    if (this.op) {
+      const cnx = await eltCnx.dbc.getConnexion(this.op, org, cryptKey) as DBabstract
+      Log.info('DB' + io + ': ' + eltCnx.name + ' connected. org:' + org + ' site:' + site)
+      return cnx
+    }
+    return null
   }
 
   async exportDb () {
@@ -197,14 +196,14 @@ export class Tools {
     const resp = await this.prompt('Export / Import DB\nValider (o/N) ?')
     if (resp !== 'o' && resp !== 'O') throw 'Exécution interrompue.'
 
-    for(const clazz of Registry.allClasses()) {
+    if (this.cnxIn && this.cnxOut) for(const clazz of Registry.allClasses()) {
       const dt = DocDescriptor.get(topCl('', clazz))
       this.log2('Class ' + clazz)
       let mark = '1'
       let n = 0
       let fin = false
       while (!fin) {
-        const {rows, eox, lastMark} = await this.cnxIn.exportRows(clazz, mark, 10)
+        const {rows, eox, lastMark} = await this.cnxIn.exportRows(clazz, mark, 10) as expList
         if (rows.length) {
           n += rows.length
           if (!this.simu) await this.cnxOut.importRows(clazz, rows)
@@ -221,7 +220,7 @@ export class Tools {
         let n = 0
         let fin = false
         while (!fin) {
-          const {rows, eox, lastMark} = await this.cnxIn.exportRowsQ(clazz, colName, mark, 10)
+          const {rows, eox, lastMark} = await this.cnxIn.exportRowsQ(clazz, colName, mark, 10) as expListQ
           if (rows.length) {
             n += rows.length
             if (!this.simu) await this.cnxOut.importRowsQ(clazz, colName, rows)
@@ -237,26 +236,16 @@ export class Tools {
     this.log('\n============== Export / import completed in ' + t + 'ms - ' + nbr + ' rows - ' + nbrq + ' rowsQ')
   }
 
-   async test1 () : Promise<void> {
+  async test1 () : Promise<void> {
     await testECDH()
     // await testSH()
   }
-
-  async schemaFirestore () : Promise<void> {
-    const cl = config.dbConnectors['firestore']
-    if (cl) await cl.genSchema()
-    else Log.error('Firestore connector undeclared')
-  }
-
-  async schemaSqlite () : Promise<void> {
-    const cl = config.dbConnectors['sqlite']
-    if (cl) await cl.genSchema()
-    else Log.error('SQLite connector undeclared')
-  }
-
-  async schemaPG () : Promise<void> {
-    const cl = config.dbConnectors['postgres']
-    if (cl) await cl.genSchema()
-    else Log.error('Postgres connector undeclared')
-  }
 }
+
+setup()
+
+setTimeout(async () => {
+  const [n, s] = await (new Tools()).run()
+  if (!n) Log.info('' + s); else Log.error('' + s)
+  exit()
+}, 1)

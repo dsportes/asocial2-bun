@@ -2,6 +2,8 @@
 import { exit } from 'process'
 import Log from './fw/log'
 import config from './config'
+import { setup } from './config2'
+
 // import { wptest } from './fw/wptest'
 
 Log.info('Hello via Bun!')
@@ -17,7 +19,7 @@ setTimeout(async () => {
   await wptest(subsJSON, obj)
 }, 1)
 */
-
+setup()
 setTimeout(() => {
   exit()
 }, 30000)

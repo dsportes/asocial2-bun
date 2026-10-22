@@ -35,3 +35,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # secrets
 src/keys.jsonc
+
+*.db3
+*.db3-shm
+*.db3-wal
+*.log
+filestorea

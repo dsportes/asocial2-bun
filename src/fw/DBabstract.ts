@@ -161,24 +161,13 @@ export type EventRow = {
 }
 
 export abstract class DBabstract extends DbConnexion {
-  /*
-  connector: DbConnector | null = null
-  op: AbstractOperation | null = null
-  key: Buffer | null = null
-  org: string = ''
+  /* DbConnexion
+  public connector: DbConnector
+  public op: AbstractOperation
+  public key: Buffer
+  public org?: string
+  public transaction: any
   */
-
-  quarter (d: Date) : number {
-    const y = d.getUTCFullYear() % 2000
-    const q = Math.floor(d.getUTCMonth() / 4)
-    return (y * 4) + q
-  }
-
-  /* Connexion à la DB */
-  async connect () : Promise<void> {}
-
-  /* Déconnexion de la DB */
-  async disconnect () : Promise<void> {}
 
   /* Master Directory ************************************************/
 
