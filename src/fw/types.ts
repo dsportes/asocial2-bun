@@ -14,7 +14,7 @@ export type BaseConfig = {
   serverOps: Set<string>, // Opérations supportées: 'op', 'safe', 'master'
 
   SERVICES: Set<string> // codes des services hébergés sur le site
-  ADMINIDS: Object,
+  ADMINIDS: any,
   ADMINUSERS: Set<string>
   MASTERDIRADMINUSERS: Set<string>
   MASTERDIR_URL: string
@@ -58,4 +58,17 @@ export interface OperationWC extends AbstractOperation {
 
   hbcMode () :  number
   transac () : Promise<void>
+}
+
+/************************************************************
+Accès au MasterDir et aux Safes depuis les opérations
+- soit par appel direct de la fonction si hébergé par la même uRL que l'opération
+- soit par un applel HTTP au serveur correspondant
+**************************************************************/
+export type ICVS = {
+  i: string
+  c: string
+  v: string
+  s: string
+  dh: number
 }

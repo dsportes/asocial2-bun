@@ -146,10 +146,10 @@ export type Auth = {
 export type Safe = {
   userId: string
   auth: Auth
-  devices: Object | null
-  creds: Object | null
-  options: Object | null
-  prefs: Object | null // pour chaque application, liste des préférences déclarées (ordonnée par date d'utilisation)
+  devices: any | null
+  creds: any | null
+  options: any | null
+  prefs: any | null // pour chaque application, liste des préférences déclarées (ordonnée par date d'utilisation)
 }
 
 export type EventRow = {
