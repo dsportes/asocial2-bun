@@ -8,8 +8,10 @@ export type BaseConfig = {
 
   debugLevel: number // 0: aucun, 1: standard: 2: élevé 3: détail DB
   adminAlerts: boolean // false: simulation true: envoi de mail
-  
+
   keys: any
+
+  serverOps: Set<string>, // Opérations supportées: 'op', 'safe', 'master'
 
   SERVICES: Set<string> // codes des services hébergés sur le site
   ADMINIDS: Object,

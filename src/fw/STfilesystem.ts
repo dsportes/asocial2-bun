@@ -42,7 +42,7 @@ export class FilesystemStorage extends STabstract {
     return op.baseUrl + '/file/'  + this.name + '/' + this.encode3(id1, id2, id3)
   }
 
-  override async getFile (op: AbstractOperation, id1: string, id2: string, id3:string) : Promise<Buffer | null>{
+  override async getFile (op: AbstractOperation | null, id1: string, id2: string, id3:string) : Promise<Buffer | null>{
     try {
       const p = path.resolve(this.rootpath, id1, id2, id3)
       return await readFile(p)
@@ -52,7 +52,7 @@ export class FilesystemStorage extends STabstract {
     }
   }
 
-  override async putFile (op: AbstractOperation, id1: string, id2: string, id3:string, data: Buffer) : Promise<void> {
+  override async putFile (op: AbstractOperation | null, id1: string, id2: string, id3:string, data: Buffer) : Promise<void> {
     try {
       const dir = path.resolve(this.rootpath, id1, id2)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })

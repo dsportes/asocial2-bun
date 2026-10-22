@@ -54,8 +54,8 @@ export class AppExc {
       adminAlert(op, this.message, this.stack)
   }
 
-  serial () { 
-    return JSON.stringify({
+  serial () : Uint8Array { 
+    return encode({
       code: this.code, 
       label: this.label, 
       opName: this.opName,
@@ -160,8 +160,8 @@ export abstract class STabstract {
   async ping (op: AbstractOperation) : Promise<[number, string]>  { return  [0, '0'] }
   getUrl (op: AbstractOperation, id1: string, id2: string, id3: string): string { return '' }
   putUrl (op: AbstractOperation, id1: string, id2: string, id3: string): string { return '' }
-  async getFile (op: AbstractOperation, id1: string, id2: string, id3:string) : Promise<Buffer | null> { return null }
-  async putFile (op: AbstractOperation, id1: string, id2: string, id3:string, data: Buffer) : Promise<void> { }
+  async getFile (op: AbstractOperation | null, id1: string, id2: string, id3:string) : Promise<Buffer | null> { return null }
+  async putFile (op: AbstractOperation | null, id1: string, id2: string, id3:string, data: Buffer) : Promise<void> { }
   async delFiles (op: AbstractOperation, id1: string, id2: string, lidf: string[]) : Promise<void> { }
   async delId (op: AbstractOperation, id1: string, id2: string) : Promise<void> { }
   async delOrg (op: AbstractOperation, id1: string) : Promise<void> { }

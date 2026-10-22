@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "typecheck": "bun check",
-    "inspect": "bun run --inspect-wait=localhost:4000/ src/index.ts",
+    "server": "bun run --inspect-wait=localhost:4000/ src/server.ts",
     "schemaSqlite": "bun run --inspect-wait=localhost:4000/ src/fw/tools.ts genSchema --dbType sqlite",
     "wptest": "bun run --inspect-wait=localhost:4000/ src/fw/tools.ts wptest"
   },

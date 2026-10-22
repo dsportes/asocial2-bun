@@ -23,6 +23,8 @@ export default {
 
   keys: keys,
 
+  serverOps: new Set(['op', 'safe', 'master']),
+
   SERVICES: new Set(['AS2']),
   ADMINIDS: { 
     'C5ov-RUbygqXvwKL9TxC' : admin1, 
