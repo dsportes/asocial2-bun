@@ -1,7 +1,7 @@
 import { exit } from 'process'
 import Log from './log'
 import config from '../config'
-import { setup } from '../config2'
+import { setup } from '../setup'
 
 import type { AbstractOperation } from './types'
 import type { expList, expListQ } from './DBabstract'
@@ -13,15 +13,23 @@ import { parseArgs } from 'node:util'
 import { stdin, stdout } from 'node:process'
 import { createInterface } from 'readline'
 
-// import path from 'path'
-// import { readFileSync, writeFileSync } from 'node:fs'
-// import { decode } from '@msgpack/msgpack'
+import { wptest } from './wptest'
 
 import { DbConnector } from './base'
 import type { DBabstract } from './DBabstract'
 
-/***************************************************************** */
+/***************************************************************** 
+ * Token de notification web-push d'une session servant de test
+ * Données de notification
+*/
+const subsJSON = '{"endpoint":"https://fcm.googleapis.com/fcm/send/dbaY34lmmLs:APA91bFyM4WyZ2K-HA4XBcDpZQ7By1SjF8__3HPFscJ76xAFHB0w9sLwAdP26VS0869Yy2NErN_No-9iWxXVY_KPWDfgGdEZ-6e2iiA7mAGHX05OAmUjlL5HuR18bmdspGJe8R5KpqFu","expirationTime":null,"keys":{"p256dh":"BL4EDO3M_6RbJZpR8zDxgLoYEbhTovv2CucWQZZVNDRf7Bo_ORBdKCHfmIEQ0D3cHxWsYPhp70YpFgRoEi9McpY","auth":"rLeRmm17W0frie8wpjwjtQ"}}'
+const wpobj = {
+  body: 'DEPUIS bun !',
+  title: 'Bonjour !',
+  url: 'example.com'
+}
 
+/**************************************************************** */
 class ToolOperation implements AbstractOperation {
   opName: string = ''
   result: any = {}
@@ -89,6 +97,10 @@ export class Tools {
         }
         case 'genSchema' : {
           await this.genSchema()
+          break
+        }
+        case 'wptest' : {
+          await wptest(subsJSON, wpobj)
           break
         }
         case 'export-db' : {
@@ -245,6 +257,7 @@ export class Tools {
 setup()
 
 setTimeout(async () => {
+  Log.info('Tools via Bun!')
   const [n, s] = await (new Tools()).run()
   if (!n) Log.info('' + s); else Log.error('' + s)
   exit()

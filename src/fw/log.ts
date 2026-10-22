@@ -1,11 +1,11 @@
 import winston from 'winston'
 
 export default class Log {
-  private static _logger: winston.Logger;
+  private static _logger: winston.Logger
 
-  public static debug (msg: string) { this._logger.info(msg) }
+  public static debug (msg: string) { Log._logger.info(msg) }
   public static info (msg: string) { Log._logger.info(msg) }
-  public static error (msg: string) { this._logger.error(msg) }
+  public static error (msg: string) { Log._logger.error(msg) }
 
   constructor (PROD: boolean, logsPath: string, glw?: any) {
     if (glw) {
@@ -14,8 +14,7 @@ export default class Log {
         level: 'info',
         transports: [
           new winston.transports.Console(),
-          // Add Cloud Logging
-          glw,
+          glw, // Add Google Cloud Logging
         ],
       })
     } else {
