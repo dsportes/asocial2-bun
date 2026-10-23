@@ -23,13 +23,11 @@ import { FilesystemStorage } from './fw/STfilesystem.ts'
 import { schemaExcFW } from './fw/schema.ts'
 import { schemaExcAS2 } from './as2/schema.ts'
 
-/*
-import { loadingDF } from '../src-fw/documents'
-import { loadingDA } from '../src-as2/documents'
-import { loadingOF } from '../src-fw/operations'
-import { loadingOA } from './operations'
-import { loadingOS } from '../src-fw/safeop'
-*/
+import { loadingDF } from './fw/documents'
+import { loadingDA } from './as2/documents'
+import { loadingOF } from './fw/operations'
+import { loadingOA } from './app/operations'
+import { loadingOS } from './fw/safeop'
 
 export const setup = () => {
   config.dbConnectorClasses.sqlite = AppSQLiteConnector
@@ -59,13 +57,13 @@ export const setup = () => {
   }
 
   /* Enregistrement dans Registry des classes de documents */
-  // loadingDF()
-  // loadingDA()
+  loadingDF()
+  loadingDA()
 
   /* Enregistrement dans Registry des classes d'opération */
-  // loadingOF()
-  // loadingOA()
-  // loadingOS()
+  loadingOF()
+  loadingOA()
+  loadingOS()
   
   // webpush.setVapidDetails('https://example.com/', config.keys['vapid_public_key'], config.keys['vapid_private_key'])
 

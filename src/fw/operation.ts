@@ -128,7 +128,7 @@ export class Operation implements OperationWC {
     const t = new Date().toISOString()
     Log.error(msg)
     if (args) args.unshift(src)
-    return new AppExc(105, 'ASSERT', this, args)
+    return new AppExc(105, 'unexpected_null_object', this, args)
   }
 
   trace (src: string, id: string, info: string, err: boolean) {

@@ -19,6 +19,7 @@ setup()
 const cors = (response: Response) : Response => {
   response.headers.set('Access-Control-Allow-Origin', '*')
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  response.headers.set('Access-Control-Allow-Headers', 'Origin, Content-Type, Accept')
   return response
 }
 
@@ -231,8 +232,7 @@ const server = Bun.serve({
   } : undefined,
 
   routes: {
-    "/": { 
-      OPTIONS: () => cors(new Response(''))},
+    // "/": { OPTIONS: () => cors(new Response(''))},
     '/favicon.ico': 
       Bun.file('./favicon.ico'),
     '/robots.txt': {
@@ -245,7 +245,7 @@ const server = Bun.serve({
       GET: async (req) => cors(await fileGet(req)),
       PUT: async (req) => cors(await filePut(req))
     },
-    '/op': {
+    '/op/': {
       POST: async (req) => {
         let r = checkSvc('op')
         if (r) return r
@@ -255,9 +255,11 @@ const server = Bun.serve({
         const baseUrl = url.protocol + '://' + url.host
         const body = await req.bytes()
         return cors(await doOp(body, baseUrl))
-      }
+      },
+      OPTIONS: () => 
+        cors(new Response(''))
     },
-    '/safe': {
+    '/safe/': {
       POST: async (req) => {
         let r = checkSvc('safe')
         if (r) return r
@@ -265,9 +267,11 @@ const server = Bun.serve({
         if (r) return r
         const body = await req.bytes()
         return cors(await doSafe(body))
-      }
+      },
+      OPTIONS: () => 
+        cors(new Response(''))
     },
-    '/master': {
+    '/master/': {
       POST: async (req) => {
         let r = checkSvc('master')
         if (r) return r
@@ -275,7 +279,9 @@ const server = Bun.serve({
         if (r) return r
         const body = await req.bytes()
         return cors(await doMaster(body))
-      }
+      },
+      OPTIONS: () => 
+        cors(new Response(''))
     }
   },
 

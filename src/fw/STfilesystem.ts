@@ -1,5 +1,5 @@
 /* Implémentation de l'accès au Storage par File-System */
-import Bun from 'bun'
+// import Bun from 'bun'
 
 import { writeFile, readFile } from 'node:fs/promises'
 import { existsSync, unlinkSync, rmSync, readdirSync, mkdirSync } from 'node:fs'

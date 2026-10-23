@@ -247,7 +247,8 @@ export class SQLiteConnexion extends DBabstract {
 
     try {
       this.sql = new Database(this.path /*, sqloptions */), 
-      this.sql.pragma('journal_mode = WAL')
+      this.sql.run('PRAGMA journal_mode = WAL;')
+      // this.sql.pragma('journal_mode = WAL')
     } catch (e: any) {
       throw new AppExc(108, 'SQLite_connexion_failed', this.op, 
         [this.op.opName, this.op.args.svc || '?', this.op.args.org || '?', e.message])
@@ -339,6 +340,21 @@ export class SQLiteConnexion extends DBabstract {
   }
 
   override async mdUserGet (userId: string, alias?: boolean) : Promise<MDuser | null> {
+    let stmt = this.sql.query('SELECT * FROM ZZUSERS WHERE userId = $userId')
+    let row = stmt.get( {$userId: userId} )
+    if (row) return this.normRow(row)
+    if (!alias) return null
+    stmt = this.sql.query('SELECT * FROM ZZUSERS WHERE hsha1 = $userId')
+    row = stmt.get( {$userId: userId} )
+    if (row) return this.normRow(row)
+    stmt = this.sql.query('SELECT * FROM ZZUSERS WHERE hsha2 = $userId')
+    row = stmt.get( {$userId: userId} )
+    if (row) return this.normRow(row)
+    return null
+  }
+
+  /*
+  override async mdUserGet (userId: string, alias?: boolean) : Promise<MDuser | null> {
     let stmt = this.sql.prepare('SELECT * FROM ZZUSERS WHERE userId = @userId')
     let row = stmt.get( {userId: userId} )
     if (row) return this.normRow(row)
@@ -351,6 +367,7 @@ export class SQLiteConnexion extends DBabstract {
     if (row) return this.normRow(row)
     return null
   }
+  */
 
   /* Méthodes privées ************************************/
   eqObj (a: any, b: any, lp: string[]) {
