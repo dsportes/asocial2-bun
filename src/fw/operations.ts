@@ -1,16 +1,17 @@
 // import { decode } from '@msgpack/msgpack'
-import { config } from '../src/config'
-import { Log } from '../src-fw/log'
-import { Operation, Cache } from '../src-fw/operation'
-import { MDEventS } from '../src-fw/masterdir'
-import { AppExc } from '../src-fw/log'
-import { MDandSafe } from '../src-fw/index'
-import { Registry, topCl } from '../src-fw/registry'
-import { DocDescriptor } from '../src-fw/docDescriptor'
-import { ADMIN$Status, $Subs, $SubsObj, $Credential, 
-  $Cred, $Form, $FormObj, $CredTempl, $CredChecker } from '../src-fw/documents'
-import { DocStatus, $Document, $ADocument } from '../src-fw/document'
-// import { Util } from '../src-fw/util'
+import config from '../config'
+import Log from './log'
+import { Operation, Cache } from './operation'
+import type { MDEventS } from './masterdir'
+import { AppExc } from './base'
+import { MDandSafe } from './mdandsafe'
+import { Registry, topCl } from './registry'
+import { DocDescriptor } from './docDescriptor'
+import { ADMIN$Status, $Subs,  $Credential, 
+  $Form, $CredTempl, $CredChecker } from './documents'
+import type { $SubsObj, $Cred, $FormObj} from './documents'
+import { DocStatus, $Document } from './document'
+// import { Util } from './util'
 
 export function loadingOF () {
   Log.info('fw operations loading: ' + Registry.sizeOp())
@@ -30,8 +31,8 @@ export type CredRequest = {
 /* Operations d'administration ***********************************************************/
 
 class ADMIN$isAdmin extends Operation {
-  async phase2 () {
-    this.setRes('isAdmin', this.authRecord.userId && this.authRecord.isAdmin)
+  override async phase2 () {
+    this.setRes('isAdmin', this.authRecord && this.authRecord.userId && this.authRecord.isAdmin)
   }
 }
 Registry.registerOp(ADMIN$isAdmin)
@@ -43,17 +44,17 @@ Registry.registerOp(ADMIN$isAdmin)
   Du fait de $, adresse la pseudo organisation 'ADMIN$' (donc le service)
 */
 class ADMIN$getStatus extends Operation {
-  _svc: string
-  init () {
+  _svc: string = ''
+  override init () {
     super.init()
     this._svc = this.stringValue('svc', true)
   }
-  async phase2 () {
+  override async phase2 () {
     const dd = await Cache.getRow(this, 'ADMIN$Status', { svc: this._svc}, config.STATUSLAZYNESS)
     if (!dd) this.setRes('status', { st: 0, at: 0, txt: '' })
     else {
       dd.init()
-      const s = dd.doc as ADMIN$Status // s.st: 1 2 ou 9
+      const s = dd.getDoc() as ADMIN$Status // s.st: 1 2 ou 9
       this.setRes('status', { st: s.st, at: s.at, txt: s.txt})
     }
   }
@@ -65,16 +66,16 @@ Registry.registerOp(ADMIN$getStatus)
   txt: texte explicatif éventuel de l'administrateur
 */
 class ADMIN$setStatus extends Operation {
-  _svc: string
-  _st: number
-  _txt: string
-  init () {
+  _svc: string = ''
+  _st: number = 0
+  _txt: string = ''
+  override init () {
     super.init()
     this._svc = this.stringValue('svc', true)
     this._st = this.intValue('st', true, 0, 9)
     this._txt = this.stringValue('txt', true)
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAdmin()
     let doc: ADMIN$Status = await this.cache.getDoc('ADMIN$Status', { svc: this._svc }) as ADMIN$Status
     if (doc) doc._status = DocStatus.UPD
@@ -95,29 +96,33 @@ Registry.registerOp(ADMIN$setStatus)
   st: 0:inconnu, 1:UP, 2:RO 9:DOWN
 */
 class ADMIN$getAllStatus extends Operation {
-  _status: Object
-  init () {
+  _status: any = {}
+  override init () {
     super.init()
     this._status = this.objectValue('status', true)
   }
-  async phase2 () {
+  override async phase2 () {
     for(const svc of Object.keys(this._status)) {
       if (svc === '$ST$') continue
       const obj = this._status[svc]
-      const dds = await Cache.getRow(this, 'ADMIN$Status', { svc: svc}, config.STATUSLAZYNESS)
-      dds.init()
-      const s = dds.doc as ADMIN$Status // s.st: 1 (UP) 2 (RO) ou 9(DOWN)
-      obj['$ST$'] = s.st
-      if (s.st !== 9) for(const org of Object.keys(obj)) {
-        if (org === '$ST$') continue
-        this.org = org
-        await this.dbConnector.getConnexion(this, this.org)
-        const ddo = await Cache.getRow(this, svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
-        if (!ddo) obj[org] = 0
-        else {
-          ddo.init()
-          const s: any = ddo.doc
-          obj[org] = s.st
+      const ci = await Cache.getRow(this, 'ADMIN$Status', { svc: svc}, config.STATUSLAZYNESS)
+      if (!ci) {
+        obj.st = 0
+      } else {
+        ci.init()
+        const s = ci.getDoc() as ADMIN$Status // s.st: 1 (UP) 2 (RO) ou 9(DOWN)
+        obj['$ST$'] = s.st
+        if (s.st !== 9) for(const org of Object.keys(obj)) {
+          if (org === '$ST$') continue
+          this.org = org
+          if (this.dbConnector) await this.dbConnector.getConnexion(this, this.org)
+          const cio = await Cache.getRow(this, svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
+          if (!cio) obj[org] = 0
+          else {
+            cio.init()
+            const s: any = cio.getDoc()
+            obj[org] = s.st
+          }
         }
       }
     }
@@ -132,14 +137,14 @@ Registry.registerOp(ADMIN$getAllStatus)
   - _org : facultatif, pour spécialiser des énumérations par organisation
 */
 class ADMIN$getEnum extends Operation {
-  _enumName: string
-  init () {
+  _enumName: string = ''
+  override init () {
     super.init()
     this._enumName = this.stringValue('enumName', true)
   }
 
-  async phase2 () {
-    const valx = await this.db.getSingleton(this._enumName) as string
+  override async phase2 () {
+    const valx = !this.db ? '' : await this.db.getSingleton(this._enumName) as string
     let x: string[] = JSON.parse(valx || '[]') 
     this.setRes('enum', x)
   }
@@ -149,11 +154,11 @@ Registry.registerOp(ADMIN$getEnum)
 /* ADMIN$setEnum fixe la liste des valeurs d'une enumération
 */
 class ADMIN$setEnum extends Operation {
-  _enumName: string
-  _value: string[]
-  _enumCred: string
+  _enumName: string = ''
+  _value: string[] = []
+  _enumCred: string = ''
 
-  init () {
+  override init () {
     super.init()
     this._enumName = this.stringValue('enumName', true)
     this._value = this.stringArrayValue('value', true)
@@ -167,10 +172,10 @@ class ADMIN$setEnum extends Operation {
     const dd = DocDescriptor.get(this.svc + '$' + name)
     if (!dd)
       throw new AppExc(3, 'invalid_class_name', this, [name])
-    this._enumCred = dd.enumCred
+    this._enumCred = dd.enumCred || ''
   }
 
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     if (this._enumCred) {
       /* const cr = */ this.getCredRef(this._enumCred, '1')
@@ -178,7 +183,7 @@ class ADMIN$setEnum extends Operation {
     } else {
       this.requireAdmin()
     }
-    await this.db.setSingleton(this._enumName, JSON.stringify(this._value))
+    if (this.db) await this.db.setSingleton(this._enumName, JSON.stringify(this._value))
   }
 }
 Registry.registerOp(ADMIN$setEnum)
@@ -189,15 +194,16 @@ Registry.registerOp(ADMIN$setEnum)
 - Sinon c'est une création OU une mise à jour.
 */
 class FW$setSubscription extends Operation {
+  // @ts-expect-error
   _subs: $SubsObj
-  _maxLife: number
-  init () {
+  _maxLife: number = 0
+  override init () {
     super.init()
     this._subs = this.objectValue('subscription', true) as $SubsObj
     const longLife = this.boolValue('longLife', false)
     this._maxLife = longLife ? this.SUBSLONGMAXLIFE : this.SUBSSHORTMAXLIFE
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     this.requireR()
     const subs = await this.cache.getDoc(this.svc + '$Subs', { sessionId: this.sessionId }) as $Subs
@@ -257,14 +263,14 @@ Registry.registerOp(FW$setSubscription)
 
 /* Operations standard ***********************************************************/
 class FW$Bug extends Operation {
-  init () { super.init() }
-  async phase2 () { await this.db.bug(); Log.info('Bug op') }
+  override init () { super.init() }
+  override async phase2 () { if (this.db) await this.db.bug(); Log.info('Bug op') }
 }
 Registry.registerOp(FW$Bug)
 
 class FW$ErrorTest extends Operation {
-  init () { super.init() }
-  async phase2 () { 
+  override init () { super.init() }
+  override async phase2 () { 
     throw new AppExc(102, 'error_test', this, ['arg1', 'arg2'])
   }
 }
@@ -276,17 +282,17 @@ Registry.registerOp(FW$ErrorTest)
   txt: texte explicatif éventuel de l'administrateur
 */
 class FW$getStatus extends Operation {
-  _svc: string
-  init () { 
+  _svc: string = ''
+  override init () { 
     super.init() 
     this._svc = this.stringValue('svc', true)
   }
-  async phase2 () {
+  override async phase2 () {
     const dd = await Cache.getRow(this, this._svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
     if (!dd) this.setRes('status', { st: 0, at: 0, txt: '' })
     else {
       dd.init()
-      const s: any = dd.doc
+      const s: any = dd.getDoc()
       this.setRes('status', { st: s.st, at: s.at, txt: s.txt})
     }
   }
@@ -299,23 +305,23 @@ Registry.registerOp(FW$getStatus)
   ADMINISTRATEUR
 */
 class FW$setStatus extends Operation {
-  _svc: string
-  _st: number
-  _txt: string
-  init () {
+  _svc: string = ''
+  _st: number = 0
+  _txt: string = ''
+  override init () {
     super.init()
     this._svc = this.stringValue('svc', true)
     this._st = this.intValue('st', true, 0, 9)
     this._txt = this.stringValue('txt', true)
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAdmin()
-    let doc = await this.cache.getDoc(this._svc + '$Status', { pk: '1' }) as $Document
+    let doc = await this.cache.getDoc(this._svc + '$Status', { pk: '1' }) as ADMIN$Status
     if (doc) doc._status = DocStatus.UPD
-    else doc = this.cache.newDoc(this._svc + '$Status', { pk: '1' })
-    doc['at'] = Date.now()
-    doc['st'] = this._st
-    doc['txt'] = this._txt || ''
+    else doc = this.cache.newDoc(this._svc + '$Status', { pk: '1' }) as ADMIN$Status
+    doc.at = Date.now()
+    doc.st = this._st
+    doc.txt = this._txt || ''
     this.setRes('status', { st: doc['st'], at: doc['at'], txt: doc['txt']})
   }
 }
@@ -326,22 +332,22 @@ de la classe docCl (SANS le préfixe svc$)
 dont l'index d'alias aliasName donné a la valeur donnée aliasValue.
 */
 class FW$hasAlias extends Operation {
-  _docCl: string
-  _aliasName: string
-  _aliasValue: string
-  init () {
+  _docCl: string = ''
+  _aliasName: string = ''
+  _aliasValue: string = ''
+  override init () {
     super.init()
     this._docCl = this.stringValue('docCl', true)
     this._aliasName = this.stringValue('aliasName', true)
     this._aliasValue = this.stringValue('aliasValue', true)
   }
 
-  async phase2 () {
+  override async phase2 () {
     const dd = DocDescriptor.get(this._docCl)
     const testable = dd.isTestable(this._aliasName)
     if (!testable) this.setRes('hasalias', false)
     else {
-      const doc = await this.db.oneRowByAlias(
+      const doc = !this.db ? null : await this.db.oneRowByAlias(
         this.svc + '$' + this._docCl, this._aliasName, this._aliasValue)
       this.setRes('hasalias', doc !== null)
     }
@@ -351,19 +357,20 @@ Registry.registerOp(FW$hasAlias)
 
 // FW$GetPutUrl retourne l'URL de GET ou de PUT d'un fichier en storage
 class FW$GetPutUrl extends Operation {
-  _id1 : string
-  _id2 : string
-  _id3 : string
-  _isPut : boolean
-  init () {
+  _id1 : string = ''
+  _id2 : string = ''
+  _id3 : string = ''
+  _isPut : boolean = false
+  override init () {
     super.init()
     this._id1 = this.stringValue('id1', true)
     this._id2 = this.stringValue('id2', true)
     this._id3 = this.stringValue('id3', true)
     this._isPut = this.boolValue('put', true)
   }
-  async phase2 () {
-    const url = this._isPut ? 
+  override async phase2 () {
+    let url = ''
+    if (this.storage) url = this._isPut ? 
       this.storage.putUrl(this, this._id1, this._id2, this._id3)
       : this.storage.getUrl(this, this._id1, this._id2, this._id3)
     this.setRes('url', url)
@@ -428,59 +435,59 @@ Retour:
   à cette date-heure l'image de la collection est celle-ci.
 */
 export class FW$Sync extends Operation {
-  _toSync : SubsToSync[]
-  syncs: Object = {}
-  checker: $CredChecker
-  dd: DocDescriptor
+  syncs: any = {}
+  // @ts-expect-error
+  _toSync: SubsToSync[]; checker: $CredChecker
 
-  init () {
+  override init () {
     super.init()
     this._toSync = this.arrayValue('toSync', true) as SubsToSync[]
     this.checker = Registry.newD(this.svc, 'CredChecker') as $CredChecker
     this.checker.op = this
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     this.requireR()
     for (const { def, v } of this._toSync) {
       const item = def.split('/')
       // 0: classe, 1: document, 2: coll
       const type = item.length - 1
-      this.dd = DocDescriptor.get(this.svc + '$' + item[0])
       switch (type) {
-        case 0 : { await this.sync0(def, v, item[0]); break }
-        case 1 : { await this.sync1(def, v, item[0], item[1]); break }
-        case 2 : { await this.sync2(def, v, item[0], item[1], item[2]); break }
+        case 0 : { await this.sync0(def, v, item[0] || ''); break }
+        case 1 : { await this.sync1(def, v, item[0] || '', item[1] || ''); break }
+        case 2 : { await this.sync2(def, v, item[0] || '', item[1] || '', item[2] || ''); break }
       }
     }
     this.setRes('syncs', this.syncs)
   }
 
   async sync0 (def: string, v: number, clazz: string) : Promise<void> {
-    if (!this.checker.check0()) this.syncs[def] = { v: -1 }
+    if (!this.checker.check0(clazz)) this.syncs[def] = { v: -1 }
     else {
-      const vdatas = this.dd.virtual ? null : await this.db.allRowsData(clazz, v)
+      const dd = DocDescriptor.get(this.svc + '$' + clazz)
+      const vdatas = dd.virtual ? null : (!this.db ? null : await this.db.allRowsData(clazz, v))
       this.syncs[def] = vdatas
     }
   }
 
   async sync1 (def: string, v: number, clazz: string, pk: string) : Promise<void> {
-    if (!this.checker.check1(pk)) this.syncs[def] = { v: -1 }
+    if (!this.checker.check1(clazz, pk)) this.syncs[def] = { v: -1 }
     else {
       let incr = v > 0
-      const row = await this.db.oneRow(this.svc + '$' + clazz, pk, v)
+      const row = !this.db ? null : await this.db.oneRow(this.svc + '$' + clazz, pk, v)
       this.syncs[def] =  row ? { incr, v: row.v, data: row.data } 
         : { incr, v: 0, data: [] }
     }
   }
 
   async sync2 (def: string, v: number, clazz: string, colName: string, val: string) : Promise<void> {
-    if (this.dd.hasColls) {
-      const x = this.dd.colls.get(colName)
+    const dd = DocDescriptor.get(this.svc + '$' + clazz)
+    if (dd.hasColls && dd.colls) {
+      const x = dd.colls.get(colName)
       if (x) {
-        if (!this.checker.check2(colName, val)) this.syncs[def] = { v: -1 }
+        if (!this.checker.check2(x.class, val)) this.syncs[def] = { v: -1 }
         else {
-          const vdatas = await this.db.getColl(clazz, colName, val, x.list, v)
+          const vdatas = !this.db ? null : await this.db.getColl(clazz, colName, val, x.list || false, v)
           this.syncs[def] = vdatas
         }
       }
@@ -490,10 +497,10 @@ export class FW$Sync extends Operation {
 Registry.registerOp(FW$Sync)
 
 export class FW$HeartBeat extends Operation {
-  init () {
+  override init () {
     super.init()
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     this.requireR()
   }
@@ -505,19 +512,19 @@ pour SON détenteur (signature vérifiée).
 credId pour éviter les "vieux" credential (superstition ?)
 */
 class GetCredProps extends Operation {
-  _credId: string
-  _docCl: string
-  _docPk: string 
-  init () {
+  _credId: string = ''
+  _docCl: string = ''
+  _docPk: string = ''
+  override init () {
     super.init()
     this._credId = this.stringValue('credId', true)
     this._docCl = this.stringValue('docCl', true)
     this._docPk = this.stringValue('docPk', false) || ''
     this.acceptBadCredential = true
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
-    if (!this.authRecord.koCreds.has(this._docCl + '/' + this._docPk)) {
+    if (this.authRecord && !this.authRecord.koCreds.has(this._docCl + '/' + this._docPk)) {
       const c = this.getCredRef(this._docCl, this._docPk, true)
       if (c && c.cred.credId === this._credId)
         this.setRes('vprops', [c.doc.v, c.cred.props])
@@ -527,14 +534,15 @@ class GetCredProps extends Operation {
 Registry.registerOp(GetCredProps)
 
 class PropsOfMyCreds extends Operation {
-  init () {
+  override init () {
     super.init()
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
-    const props: Object = {}
-    for(const [,credRef] of this.authRecord.creds)
-      props[credRef.cred.credId] = credRef.cred.props
+    const props: any = {}
+    if (this.authRecord) 
+      for(const [,credRef] of this.authRecord.creds)
+        props[credRef.cred.credId] = credRef.cred.props
     this.setRes('props', props)
   }
 }
@@ -545,27 +553,27 @@ Le user est authentifié et doit avoir présenté son credential:
 - sa possession est donc assuré, il peut le supprimer
 */
 class AutoRevokeCred extends Operation {
-  _credId: string
-  _docCl: string
-  _docPk: string 
-  init () {
+  _credId: string = ''
+  _docCl: string = ''
+  _docPk: string = ''
+  override init () {
     super.init()
     this._credId = this.stringValue('credId', true)
     this._docCl = this.stringValue('docCl', true)
     this._docPk = this.stringValue('docPk', true)
   }
-  async phase2 () {
+  override async phase2 () {
     // this.requireAdmin()
     this.requireAuth()
-    const credRef = this.authRecord.getCredRef(this._docCl, this._docPk, true)
+    const credRef = !this.authRecord ? undefined : this.authRecord.getCredRef(this._docCl, this._docPk, true)
     if (!credRef || credRef.cred.credId !== this._credId)
       throw new AppExc(103, 'no_cred_owner', this, [this.opName, this.args.svc || '', this.args.org || '?', this._docCl, this._docPk])
     const dd = credRef.doc._docDescriptor
     if (dd.embedCreds) {
       const d = await this.cache.getDoc(this._docCl, { pk: this._docPk })
-      const x = d.embedCreds
+      const x = d ? d.embedCreds : undefined
       if (x) delete x[this._credId]
-      d._status = DocStatus.UPD
+      if (d) d._status = DocStatus.UPD
     } else {
       const c = await this.cache.getDoc('$Credential', { credId: this._credId }) as $Credential
       if (c) this.cache.delDoc('$Credential', c.myPk)
@@ -579,10 +587,10 @@ quelle que soit leurs classes.
 Un _credential manager_ est un credential qui ne peut être attribué que par un _administrateur_ .
 */
 class ListManagers extends Operation {
-  init () {
+  override init () {
     super.init()
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAdmin()
     const lst = await $Credential.listManagers(this)
     this.setRes('creds', lst)
@@ -594,14 +602,14 @@ Registry.registerOp(ListManagers)
 src: map des propriétés de la pk. Pour un credential NON embedded: { docId: gheyrb... }
 Retourne une liste de Cred */
 class credsByDoc extends Operation {
-  _docCl: string
-  _src: Object 
-  init () {
+  _docCl: string = ''
+  _src: any = {} 
+  override init () {
     super.init()
     this._docCl = this.stringValue('docCl', true)
     this._src = this.objectValue('src', true)
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     const dd = DocDescriptor.get(topCl(this.svc, this._docCl))
     let lst: $Cred[]
@@ -618,17 +626,17 @@ Registry.registerOp(credsByDoc)
 Requiert que le challenge ch soit celui enregistré dans l'event créé.
 */
 class MDEventFull extends Operation {
-  _eventId: string
-  _type: string
-  _ch: string
+  _eventId: string = ''
+  _type: string = ''
+  _ch: string = ''
 
-  init () {
+  override init () {
     super.init()
     this._eventId = this.stringValue('eventId', true)
     this._type = this.stringValue('type', true)
     this._ch = this.stringValue('ch', true)
   }
-  async phase2 () {
+  override async phase2 () {
     const f = await this.cache.getDoc(this.svc + '$Form', 
       { formId: this._eventId, type: this._type }) as $Form
     if (f && f.ch === this._ch) {
@@ -651,17 +659,17 @@ Registry.registerOp(MDEventFull)
 d'un Form du _document_.
 */
 class MDEventSync extends Operation {
-  _eventId: string
-  _type: string
-  _chk: string
+  _eventId: string = ''
+  _type: string = ''
+  _chk: string = ''
 
-  init () {
+  override init () {
     super.init()
     this._eventId = this.stringValue('eventId', true)
     this._type = this.stringValue('type', true)
     this._chk = this.stringValue('chk', true)
   }
-  async phase2 () {
+  override async phase2 () {
     const f = await this.cache.getDoc(this.svc + '$Form', 
       { formId: this._eventId, type: this._type }) as $Form
     if (f && f.chk(this) === this._chk && !f.isOld) {
@@ -682,14 +690,15 @@ Registry.registerOp(MDEventSync)
 Il reste à la session de U 10s pour valider la création en MD
 */
 class FormCreateByU extends Operation {
+  // @ts-expect-error
   _formObj: $FormObj
 
-  init () {
+  override init () {
     super.init()
     this._formObj = this.args['formObj'] as $FormObj
   }
 
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     let f = await this.cache.getDoc(this.svc + '$Form', this._formObj) as $Form
     if (f) 
@@ -710,14 +719,15 @@ Registry.registerOp(FormCreateByU)
 Il reste à la session de U 10s pour valider la création en MD
 */
 class FormCreateByT extends Operation {
+  // @ts-expect-error
   _formObj: $FormObj
 
-  init () {
+  override init () {
     super.init()
     this._formObj = this.args['formObj'] as $FormObj
   }
 
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     let f = await this.cache.getDoc(this.svc + '$Form', this._formObj) as $Form
     if (f) 
@@ -735,20 +745,21 @@ class FormCreateByT extends Operation {
 Registry.registerOp(FormCreateByT)
 
 class FormUpdByU extends Operation {
-  _formId: string
-  _type: string
-  _etcU: Object
-  _msgU: Uint8Array
+  _formId: string = ''
+  _type: string = ''
+  // @ts-expect-error
+  _msgU: Uint8Array; _etcU: any
 
-  init () {
+  override init () {
     super.init()
     this._formId = this.stringValue('formId', true)
     this._type = this.stringValue('type', true)
     this._etcU = this.objectValue('etcU', true)
+    // @ts-expect-error
     this._msgU = this.binValue('msgU', true)
   }
 
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     const f = await this.cache.getDoc(this.svc + '$Form',
       { formId: this._formId, type: this._type }) as $Form
@@ -768,20 +779,21 @@ class FormUpdByU extends Operation {
 Registry.registerOp(FormUpdByU)
 
 class FormUpdByT extends Operation {
-  _formId: string
-  _type: string
-  _etcT: Object
-  _msgT: Uint8Array | null
+  _formId: string = ''
+  _type: string = ''
+  _etcT: Object = {}
+  _msgT: Uint8Array | null = null
 
-  init () {
+  override init () {
     super.init()
     this._formId = this.stringValue('formId', true)
     this._type = this.stringValue('type', true)
+    // @ts-expect-error
     this._etcT = this.objectValue('etcT', true)
     this._msgT = this.binValue('msgT', false)
   }
 
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     const f = await this.cache.getDoc(this.svc + '$Form', 
       { formId: this._formId, type: this._type }) as $Form
@@ -802,22 +814,22 @@ class FormUpdByT extends Operation {
 Registry.registerOp(FormUpdByT)
 
 class FormCancel extends Operation {
-  _formId: string
-  _type: string
+  _formId: string = ''
+  _type: string = ''
 
-  init () {
+  override init () {
     super.init()
     this._formId = this.stringValue('formId', true)
     this._type = this.stringValue('type', true)
   }
 
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     const f = await this.cache.getDoc(this.svc + '$Form', 
       { formId: this._formId, type: this._type }) as $Form
     if (!f || f.isOld) 
       { this.setRes('status', 1); return }
-    if (f.userId !== this.authRecord.userId)
+    if (!this.authRecord || f.userId !== this.authRecord.userId)
       { this.setRes('status', 2); return }
     if (f.status > 2 ) { this.setRes('status', 3); return }
     f.status = 4
@@ -828,17 +840,18 @@ class FormCancel extends Operation {
 Registry.registerOp(FormCancel)
 
 class ValidateForm extends Operation {
-  _formId: string
-  _type: string
-  _opts: any
-  etc: Object
-  msg: Uint8Array
+  _formId: string = ''
+  _type: string = ''
+  _opts: any = {}
+
+  // @ts-expect-error
+  etc: Object; msg: Uint8Array; st: number
   byU: boolean = true
-  st: number
+  
   credTemplates: $CredTempl[] = [] 
   // Credentials To Check: credentials dont toCheck doit être reseté en phase 3
 
-  init () {
+  override init () {
     super.init()
     this.hasPhase3 = true
     this._formId = this.stringValue('formId', true)
@@ -849,7 +862,7 @@ class ValidateForm extends Operation {
         this.credTemplates.push(new $CredTempl(this._opts.credTemplates[credId]))
   }
 
-  async phase2 () : Promise<void> {
+  override async phase2 () : Promise<void> {
     this.requireAuth()
     const f = await this.cache.getDoc(this.svc + '$Form', 
       { formId: this._formId, type: this._type }) as $Form
@@ -870,7 +883,7 @@ class ValidateForm extends Operation {
     f.setMaxLife()
 
     // Actions spécifique de la validation: création / maj de documents
-    const newDocs = []
+    const newDocs: $Document[] = []
     this.st = await f.validate(this, newDocs)
 
     if (this.st) { // échec de la  validation spécifique: on annule les updates / new des credentials
@@ -917,7 +930,7 @@ class ValidateForm extends Operation {
     this.setRes('status', 0)
   }
 
-  async phase3 () {
+  override async phase3 () {
     if (this.st || !this.credTemplates.length) return
     for(const ct of this.credTemplates) {
       const args = { userId: ct.userId, credId: ct.credId, signId: ct.signId }
@@ -927,9 +940,11 @@ class ValidateForm extends Operation {
 }
 
 class FormValidateByU extends ValidateForm {
-  init () {
+  override init () {
     super.init()
+    // @ts-expect-error
     this.etc = this.objectValue('etcU', true)
+    // @ts-expect-error
     this.msg = this.binValue('msgU', true)
     this.byU = true
   }
@@ -937,9 +952,11 @@ class FormValidateByU extends ValidateForm {
 Registry.registerOp(FormValidateByU)
 
 class FormValidateByT extends ValidateForm {
-  init () {
+  override init () {
     super.init()
+    // @ts-expect-error
     this.etc = this.objectValue('etcT', true)
+    // @ts-expect-error
     this.msg = this.binValue('msgT', true)
     this.byU = false
   }
@@ -950,15 +967,15 @@ Registry.registerOp(FormValidateByT)
 - l'appelant doit être soit U, soit un tiers ayant droit de traiter form
 */
 class FormGet extends Operation {
-  _formId: string
-  _type: string
+  _formId: string = ''
+  _type: string = ''
 
-  init () {
+  override init () {
     super.init()
     this._formId = this.stringValue('formId', true)
     this._type = this.stringValue('type', true)
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     const f = await this.cache.getDoc(this.svc + '$Form', 
       { formId: this._formId, type: this._type }) as $Form
@@ -974,12 +991,12 @@ class FormGet extends Operation {
 Registry.registerOp(FormGet)
 
 class FormFilteredList extends Operation {
-  _filter: string[]
-  init () {
+  _filter: string[] = []
+  override init () {
     super.init()
     this._filter = this.stringArrayValue('filter', true)
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     // this._filter = ['Auteur/VictorHugo', 'Redaction/1'] ou ['A']
     if (this._filter.length === 1 && this._filter[0] === 'A')
@@ -991,18 +1008,19 @@ class FormFilteredList extends Operation {
 Registry.registerOp(FormFilteredList)
 
 class UpdateCredential extends Operation {
-  _credId: string
-  _docCl: string
-  _docPk: string
-  _props: Object
-  init () {
+  _credId: string = ''
+  _docCl: string = ''
+  _docPk: string = ''
+  _props: Object = ''
+  override init () {
     super.init()
     this._credId = this.stringValue('credId', true)
     this._docCl = this.stringValue('docCl', true)
     this._docPk = this.stringValue('docPk', true)
+    // @ts-expect-error
     this._props = this.objectValue('props', true)
   }
-  async phase2 () {
+  override async phase2 () {
     if (Registry.managersOfSvc(this.svc).has(this._docCl)) {
       this.requireAdmin()
       const doc = await $Credential.update(this, this._credId, this._docCl, this._docPk, this._props)
@@ -1018,34 +1036,36 @@ Registry.registerOp(UpdateCredential)
 (userCredProps)
 */ 
 class UpdPropsCred extends Operation {
-  _credId: string
-  _docCl: string
-  _docPk: string
+  _credId: string = ''
+  _docCl: string = ''
+  _docPk: string = ''
+  // @ts-expect-error
   _props: Object
-  init () {
+  override init () {
     super.init()
     this._credId = this.stringValue('credId', true)
     this._docCl = this.stringValue('docCl', true)
     this._docPk = this.stringValue('docPk', true)
+    // @ts-expect-error
     this._props = this.objectValue('props', true)
   }
-  async phase2 () {
+  override async phase2 () {
     this.requireAuth()
     const credRef = this.getCredRef(this._docCl, this._docPk)
     if (!credRef || credRef.cred.credId !== this._credId) 
       { this.setRes('status', 1); return }
     const credCl = credRef.doc.constructor
-    const sp = credCl['userCredProps'] as Set<string>
+    const sp = (credCl as any)['userCredProps'] as Set<string>
     if (!sp || !sp.size) { this.setRes('status', 3); return }
 
     let upd = false
     const cred = credRef.isEmbed ? credRef.doc.embedCreds[credRef.cred.credId]
-      : credRef.doc['cred']
+      : (credRef.doc as any)['cred']
 
     const props = cred.props
     for(const p of Object.keys(this._props)) {
       if (sp.has(p)) {
-        const v = this._props[p]
+        const v = (this._props as any)[p]
         if (props[p] !== v) {
           props[p] = v
           upd = true

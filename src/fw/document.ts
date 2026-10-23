@@ -20,7 +20,7 @@ export class $Document extends $ADocument {
   v: number = 0
   release: number = 0 // numéro de release de la structure de l'objet
   maxLife?: number // EPOCH en MINUTES de fin de vie logique du document
-  embedCreds?: Object
+  embedCreds?: any
 
   get _docCl () {
     const x = this._clazz.substring(this._clazz.indexOf('$') + 1)

@@ -32,6 +32,11 @@ export class AppExc {
   111: APP : Exception technique DB / réseau : configuration suspectée
   */
 
+  static assert (obj: any, name: string, op?: any) {
+    if (!obj)
+      throw new AppExc(105, 'unexpected_null_object', op, [name])
+  }
+
   public code: number
   public label: string
   public opName: string

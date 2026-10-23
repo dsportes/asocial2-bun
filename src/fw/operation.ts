@@ -32,17 +32,27 @@ type conso = {
   vfw: number, // volume de fichiers écrits
 }
 
-export class DocDescr {
+class CacheItem {
   clazz: string
   pk: string
   // En cache globale: détention sous forme row (data décrypté mais sérialisé)
-  row?: row
+  row: row
   // En chache d'une opération: détention d'un Document (pas d'un row)
-  doc?: $Document
+  private doc?: $Document
 
-  constructor (clazz: string, pk: string, row: row | null) {
+  constructor (clazz: string, pk: string, row: row) {
     this.clazz = clazz; this.pk = pk
-    if (row) this.row = row
+    this.row = row
+  }
+
+  get hasDoc () : boolean { return this.doc !== undefined }
+  getDoc () : $Document { AppExc.assert(this.doc, 'doc')
+    // @ts-expect-error
+    return this.doc }
+  resetDoc () { delete this.doc }
+
+  get status () : DocStatus {
+    return !this.doc ? DocStatus.NONE : (this.doc._status || DocStatus.NONE)
   }
 
   static key (clazz: string, pk: string) { 
@@ -53,10 +63,13 @@ export class DocDescr {
   Retourne le document compilé
   */
   init () : void {
-    const d = this.row && this.row.data ? decode(this.row.data) : {}
+    const rdata = this.row.data
+    AppExc.assert(rdata, 'data')
+    // @ts-expect-error
+    const d = decode(rdata)
     const [data, b] = $Document.mutate(this.clazz, d)
     this.doc = $Document.newDoc(this.clazz, DocStatus.NONE, data)
-    if (this.row && this.row._org) this.doc._org = this.row._org
+    this.doc._org = this.row._org || ''
   }
 
 }
@@ -98,23 +111,24 @@ export class Operation implements OperationWC {
   public db?: DBabstract
 
   public conso?: conso
-  public updates?: DocDescr[]
+  public updates?: CacheItem[]
   public hasUpdates: boolean = false
   public impactedSubs?: ImpactedSubs
   public hasTasks: boolean = false
 
-  public cache?: Cache
+  private _cache: Cache | undefined
+  get cache () : Cache { if (!this._cache) this._cache = new Cache(this); return this._cache }
 
   get SUBSSHORTMAXLIFE() { return Math.floor(this.now / 60000) + (config.SUBSMAXLIFEINMINUTES[0] || 3 * 24 * 60) }
   get SUBSLONGMAXLIFE() { return Math.floor(this.now / 60000) + (config.SUBSMAXLIFEINMINUTES[1] || 1 * 24 * 60) }
 
-  assertKO (src: string, code: number, args: string[]) {
+  assertKO (src: string, args: string[]) {
     const x = args && args.length ? JSON.stringify(args) : ''
-    const msg = `ASSERT : ${src} - ${x} - ${code}`
+    const msg = `ASSERT : ${src} - ${x} - 105`
     const t = new Date().toISOString()
     Log.error(msg)
     if (args) args.unshift(src)
-    return new AppExc(code, 'ASSERT', this, args)
+    return new AppExc(105, 'ASSERT', this, args)
   }
 
   trace (src: string, id: string, info: string, err: boolean) {
@@ -185,7 +199,7 @@ export class Operation implements OperationWC {
       await authRecord.process()
     
     await this.phase2(this.args)
-    if (this.cache) this.cache.commit()
+    this.cache.commit()
   }
 
   async run () : Promise<void>{
@@ -199,7 +213,7 @@ export class Operation implements OperationWC {
         this.msSlow = 0
         this.updates = []
         this.hasTasks = false
-        this.cache = new Cache(this)
+        this.cache.reinit()
         this.conso = { ndr: 0, ndw: 0, vdr: 0, vdw: 0, nfr: 0, nfw: 0, vfr: 0, vfw: 0 }
         this.result = { now: this.now, srvBUILD: config.BUILD }
         
@@ -214,13 +228,10 @@ export class Operation implements OperationWC {
         if (!err) {
           if (hbc) 
             this.setRes('hbc', hbc)
-          if (this.updates && this.updates.length) for(let i = 0; i < this.updates.length; i++) {
-            // @ts-expect-error
-            const upd: DocDescr = this.updates[i]
-            Cache.updateCache(this, upd)
-            delete upd.doc
-            this.updates[i] = upd
-          }
+          if (this.updates) this.updates.forEach(ci => {
+            Cache.updateCache(this, ci)
+            ci.resetDoc
+          })
           Cache._purge(this)
           break 
         }
@@ -438,15 +449,20 @@ export class AuthRecord {
   }
 
   async getSvcOrgStatus () : Promise<number> {
-    let dd = await Cache.getRow(this.op, 'ADMIN$Status', { svc: this.op.args.svc}, config.STATUSLAZYNESS)
-    if (!dd) return 0
-    dd.init()
-    let s = dd.doc ? (dd.doc as any)['st'] : 9 // s.st: 1 2 ou 9
+    let ci = await Cache.getRow(this.op, 'ADMIN$Status', { svc: this.op.args.svc}, config.STATUSLAZYNESS)
+    if (!ci) return 0
+    ci.init()
+
+    let doc = ci.getDoc() as $Document
+    type ObjectKey = keyof typeof doc
+    const s = doc['st' as ObjectKey]
     if (s === 9) return 9
-    dd = await Cache.getRow(this.op, this.op.args.svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
-    if (!dd) return 0
-    dd.init()
-    return dd.doc ? (dd.doc as any)['st'] : 9 
+
+    ci = await Cache.getRow(this.op, this.op.args.svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
+    if (!ci) return 0
+    ci.init()
+    doc = ci.getDoc() as $Document
+    return doc['st' as ObjectKey] || 0 
   }
 
   getCredRef (docCl: string, docPk: string, noex?: boolean, checkSusp?: boolean) : CredRef | null {
@@ -489,9 +505,11 @@ export class AuthRecord {
       } else { // Recherche du Credential par sa pk
         const c = !this.op.cache ? null : await this.op.cache.getDoc(this.op.svc + '$Credential', { credId, docCl }) as $Credential
         if (c && c.docCl === docCl && c.docPk === docPk) {
-          credRef = new CredRef(c, c.cred, false)
-          if (!credRef.isValid && this.op.cache)
-            this.op.cache.delDoc(this.svc + '$Credential', c.myPk)
+          if (c.cred) {
+            credRef = new CredRef(c, c.cred, false)
+            if (!credRef.isValid && this.op.cache)
+              this.op.cache.delDoc(this.svc + '$Credential', c.myPk)
+          }
         }
       }
       const ok = !credRef || !credRef.isValid || !credRef.cred.pubv || !this.challenge ? false 
@@ -545,9 +563,13 @@ export class Cache {
 
   // Cache locale à l'opération
   op: Operation
-  db?: DBabstract
   conso?: number[]
-  docs: Map<string, DocDescr>
+  docs: Map<string, CacheItem>
+
+  get db () : DBabstract { 
+    AppExc.assert(this.op.db, 'db')
+    // @ts-expect-error
+    return this.op.db }
 
   static MAX_CACHE_SIZE = 1000
   static LAZY_MS = 5000
@@ -574,17 +596,17 @@ export class Cache {
   - lazy: nombre de SECONDES d'ancienneté accepté pour une lecture non bloquante
   */
   static async getRow(op: Operation, clazz: string, src: Object, lazy?: number)
-    : Promise<DocDescr | null> {
-    if (!op.db) return null
+    : Promise<CacheItem | undefined> {
+    if (!op.db) return undefined
     const topClazz = topCl(op.svc, clazz)
     const oc = Cache.orgCache(op)
     const now = Date.now()
     const pk = DocDescriptor.get(topClazz).pkValue(src)
-    const k = DocDescr.key(clazz, pk)
-    let item: cacheItem | null = oc.get(k) || null
+    const k = CacheItem.key(clazz, pk)
+    let item = oc.get(k)
     if (item && lazy && ((now - item.time) < (lazy * Cache.LAZY_MS))) {
       item.lru = now
-      return new DocDescr(topClazz, pk, cloneRow(item.row))
+      return new CacheItem(topClazz, pk, cloneRow(item.row))
     }
 
     if (item) { // trouvé en cache, lecture pour recherche d'un éventuel plus récent
@@ -592,42 +614,40 @@ export class Cache {
       const row = await op.db.oneRow(topClazz, pk, item.row.v)
       if (row && row.v > item.row.v) { // celui lu est plus récent
         item.row = row
-        if (row.deleted) return null
+        if (row.deleted) return undefined
       }
-      return new DocDescr(topClazz, pk, cloneRow(item.row))
+      return new CacheItem(topClazz, pk, cloneRow(item.row))
     }
 
     // Pas trouvé en cache - recherche en base
     // @ts-expect-error
     const row = await op.db.oneRow(topClazz, pk, item ? item.row.v : 0)
-    if (!row) return null // Pas trouvé en base
+    if (!row) return undefined // Pas trouvé en base
     // trouvé en base, mis en cache
     item = { lru: now, time: now, row } 
     oc.set(k, item)
-    return row.deleted ? null : new DocDescr(topClazz, pk, cloneRow(row))
+    return row.deleted ? undefined : new CacheItem(topClazz, pk, cloneRow(row))
   }
 
-  static updateCache (op: Operation, dd: DocDescr) {
+  static updateCache (op: Operation, ci: CacheItem) {
     const oc = Cache.orgCache(op)
-    const k = DocDescr.key(dd.clazz, dd.pk)
+    const k = CacheItem.key(ci.clazz, ci.pk)
     let item = oc.get(k)
-    if (dd.doc && dd.doc._status === DocStatus.DEL) { // suppression
+    if (ci.status === DocStatus.DEL) { // suppression
       if (item) {
         item.lru = op.now
         item.row.deleted = true
-        item.row.data = encode({ deleted: true, v: op.now, _pk: item.row.pk, _clazz: dd.clazz })
+        item.row.data = encode({ deleted: true, v: op.now, _pk: item.row.pk, _clazz: ci.clazz })
       }
     } else {
-      if (dd.row) {
-        if (item) { // remplacement éventuel
-          if (dd.row.v > item.row.v) {
-            item.row = dd.row
-            item.lru = op.now
-            item.time = op.now
-          }
-        } else { // insertion d'un nouveau
-          item = { lru: op.now, time: op.now, row: dd.row }
+      if (item) { // remplacement éventuel
+        if (ci.row.v > item.row.v) {
+          item.row = ci.row
+          item.lru = op.now
+          item.time = op.now
         }
+      } else { // insertion d'un nouveau
+        item = { lru: op.now, time: op.now, row: ci.row }
       }
     }
     if (item) oc.set(k, item)
@@ -648,28 +668,31 @@ export class Cache {
 
   constructor (operation: Operation) {
     this.op = operation
-    this.db = this.op.db
-    this.docs = new Map<string, DocDescr>()
+    this.docs = new Map<string, CacheItem>()
+  }
+
+  reinit () {
+    this.docs.clear()
   }
 
   /* Retourne ou lit de la base le Document cité par src:
   - src : objet contenant les propriétés de la pk
   */
-  async getDoc (clazz: string, src?: any, assert?: string) : Promise<$Document | null> {
+  async getDoc (clazz: string, src?: any, assert?: string) : Promise<$Document | undefined> {
     const topClazz = topCl(this.op.svc, clazz)
     const dx = DocDescriptor.get(topClazz)
     const pk = dx.pkValue(src)
-    const k = DocDescr.key(clazz, pk)
-    let dd = this.docs.get(k) || null
-    if (dd && dd.doc) return dd.doc
-    dd = await Cache.getRow(this.op, clazz, src)
-    if (!dd) {
-      if (assert) this.op.assertKO(assert, 25, [clazz, dx.pkValue(src, false)])
-      return null
+    const k = CacheItem.key(clazz, pk)
+    let ci = this.docs.get(k)
+    if (ci && ci.hasDoc) return ci.getDoc()
+    ci = await Cache.getRow(this.op, clazz, src)
+    if (!ci) {
+      if (assert) this.op.assertKO(assert, [clazz, dx.pkValue(src, false)])
+      return undefined
     }
-    dd.init()
-    this.docs.set(k, dd)
-    return dd.doc as $Document
+    ci.init()
+    this.docs.set(k, ci)
+    return ci.getDoc()
   }
 
   /* Met en cache un row issu de la lecture en mode "report" de la DB.
@@ -677,14 +700,14 @@ export class Cache {
   Retourne le document.
   */
   putRow (clazz: string, row: row) : $Document | null {
-    const k = DocDescr.key(clazz, row.pk)
-    let dd = this.docs.get(k)
-    if (dd && dd.doc) return dd.doc
-    dd = new DocDescr(clazz, row.pk, row)
-    dd.init()
-    this.docs.set(k, dd)
+    const k = CacheItem.key(clazz, row.pk)
+    let ci = this.docs.get(k)
+    if (ci && ci.hasDoc) return ci.getDoc()
+    ci = new CacheItem(clazz, row.pk, row)
+    ci.init()
+    this.docs.set(k, ci)
     // @ts-expect-error
-    return dd.doc
+    return ci.doc
   }
 
   /* Met en cache un NOUVEAU document (création) depuis un objet source.
@@ -694,14 +717,16 @@ export class Cache {
   newDoc (clazz: string, src?: Object) : $Document {
     const topClazz = topCl(this.op.svc, clazz)
     const pk = DocDescriptor.get(topClazz).pkValue(src)
-    const k = DocDescr.key(clazz, pk)
-    let dd = this.docs.get(k)
-    if (dd && dd.doc) return dd.doc
-    dd = new DocDescr(clazz, pk, null)
-    dd.doc = $Document.newDoc(clazz, DocStatus.NEW, src || {})  
-    dd.doc._org = this.op.org
-    this.docs.set(k, dd)
-    return dd.doc
+    const k = CacheItem.key(clazz, pk)
+    let ci = this.docs.get(k)
+    if (ci) return ci.getDoc()
+    const dx = $Document.newDoc(clazz, DocStatus.NEW, src || {}) 
+    AppExc.assert(dx, 'dx')
+    dx._org = this.op.org
+    // @ts-expect-error
+    ci = new CacheItem(clazz, pk, dx)
+    this.docs.set(k, ci)
+    return dx
   }
 
   /* Marque le document identifié par sa pk 
@@ -712,11 +737,11 @@ export class Cache {
   - sinon son status est à DEL.
   */
   delDoc (clazz: string, pk: string) {
-    const k = DocDescr.key(clazz, pk)
-    let dd = this.docs.get(k)
-    if (dd && dd.doc) {
-      if (dd.doc._status === DocStatus.NEW) this.docs.delete(k)
-      else dd.doc._status = DocStatus.DEL
+    const k = CacheItem.key(clazz, pk)
+    let ci = this.docs.get(k)
+    if (ci) {
+      if (ci.status === DocStatus.NEW) this.docs.delete(k)
+      else ci.getDoc()._status = DocStatus.DEL
     }
   }
 
@@ -724,35 +749,28 @@ export class Cache {
   - constitue la liste op.updates pour notification aux sessions abonnées.
   */
   commit () {
+    AppExc.assert(this.db, 'db')
+    // @ts-expect-error
+    const db: DBabstract = this.op.db
     this.op.impactedSubs = new ImpactedSubs()
     this.op.updates = []
-    for (const [k, dd] of this.docs) {
-      if (!dd.doc) continue
-      if (dd.doc._status === DocStatus.NONE) continue
-      const doc = dd.doc
-      let row: row | null = null
-      if (doc._status === DocStatus.UPD) {
-        row = doc.toRow(this.op.now)
-        dd.row = row
-        this.op.updates.push(dd)
-        if (this.db) this.db.writeRow(updType.UPDATE, dd.clazz, row)
-      } else if (doc._status === DocStatus.NEW) {
-        row = doc.toRow(this.op.now)
-        dd.row = row
-        this.op.updates.push(dd)
-        if (this.db) this.db.writeRow(updType.CREATE, dd.clazz, row)
-      } else { // DocStatus.DEL
-        if (doc._docDescriptor.sync) {
-          row = doc.toZombiRow(this.op.now)
-          dd.row = row
-          this.op.updates.push(dd)
-          if (this.db) this.db.writeRow(updType.UPDATE, dd.clazz, row)
-        }
-        else if (this.db) this.db.deleteRow(dd.clazz, dd.pk)
+    for (const [k, ci] of this.docs) {
+      if (ci.status === DocStatus.NONE) continue
+      const doc = ci.getDoc()
+      ci.row = doc._status === DocStatus.UPD || doc._status === DocStatus.NEW ?
+        doc.toRow(this.op.now) : doc.toZombiRow(this.op.now)
+      this.op.updates.push(ci)
+      if (doc._status === DocStatus.UPD)
+        db.writeRow(updType.UPDATE, ci.clazz, ci.row)
+      else if (doc._status === DocStatus.NEW)
+        db.writeRow(updType.CREATE, ci.clazz, ci.row)
+      else { // DocStatus.DEL
+        if (doc._docDescriptor.sync) db.writeRow(updType.UPDATE, ci.clazz, ci.row)
+        else db.deleteRow(ci.clazz, ci.pk)
       }
       if (doc._docDescriptor.sync && doc._docDescriptor.colls) {
-        const is = this.op.impactedSubs.getEntry(dd.clazz, dd.pk)
-        if (row) this.manageColls(dd.clazz, doc, row, is)
+        const is = this.op.impactedSubs.getEntry(ci.clazz, ci.pk)
+        if (ci.row) this.manageColls(db, ci.clazz, doc, ci.row, is)
       }
     }
     this.op.hasUpdates = this.op.updates.length !== 0
@@ -762,7 +780,7 @@ export class Cache {
     - inscription dans impactedSubs
     - création des rowQ : trace des disparitions des collections "mutables"
   */
-  manageColls (clazz: string, doc: $Document, row: row, is: ImpactedSub) {
+  manageColls (db: DBabstract, clazz: string, doc: $Document, row: row, is: ImpactedSub) {
 
     for (const [n, collection] of doc._docDescriptor.colls) {
     
@@ -785,25 +803,20 @@ export class Cache {
 
       if (doc._status === DocStatus.DEL) { 
         // le ou les termes "before" quittent le ou les (list) documents
-        if (this.db) {
-          if (collection.list) for (const x of b) this.db.writeRowQ(clazz, n, row.pk, row.v, x)
-          else this.db.writeRowQ(clazz, n, row.pk, row.v, b[0] || '')
-        }
+        if (collection.list) for (const x of b) db.writeRowQ(clazz, n, row.pk, row.v, x)
+        else db.writeRowQ(clazz, n, row.pk, row.v, b[0] || '')
         continue
       }
 
       // Il y avait une valeur AVANT (b existe): diffère-t-elle de celle APRES ?
       // Tous les termes "before" qui y étaient AVANT 
       // et ne le sont plus MAINTENANT quittent le document
-      if (this.db) {
-        if (collection.list) {
-          const as = a ? new Set(a) : new Set()
-          for (const x of b) 
-            if (!as.has(x))
-              this.db.writeRowQ(clazz, n, row.pk, row.v, x)
-        } else if (a && (a[0] !== b[0])) 
-          this.db.writeRowQ(clazz, n, row.pk, row.v, b[0] || '')
-      }
+      if (collection.list) {
+        const as = a ? new Set(a) : new Set()
+        for (const x of b) 
+          if (!as.has(x)) db.writeRowQ(clazz, n, row.pk, row.v, x)
+      } else if (a && (a[0] !== b[0])) 
+        db.writeRowQ(clazz, n, row.pk, row.v, b[0] || '')
     }
   }
 } 
@@ -826,7 +839,7 @@ export class ImpactedSubs {
   }
 
   getEntry (clazz: string, pk: string) : ImpactedSub {
-    const k = DocDescr.key(clazz, pk)
+    const k = CacheItem.key(clazz, pk)
     let is = this.all.get(k)
     if (!is) {
       is = new ImpactedSub(clazz, pk)

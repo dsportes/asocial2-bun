@@ -30,10 +30,10 @@ nd++; Registry.register(ADMIN$Task)
 
 export class ADMIN$Status extends $Document {
   static release = 0
-  svc: string // service (pk)
-  st: number // code 0: inconnu 1: UP 2: READ-ONLY 9: DOWN
-  at: number // time de dernière mise à jour
-  txt: string // texte explicatif éventuel de l'administrateur
+  svc: string = '' // service (pk)
+  st: number = 0 // code 0: inconnu 1: UP 2: READ-ONLY 9: DOWN
+  at: number = 0 // time de dernière mise à jour
+  txt: string = '' // texte explicatif éventuel de l'administrateur
 
   isUP () { return this.st === 1 || this.st === 2 }
   isRO () { return this.st === 2 }
@@ -43,25 +43,24 @@ export class ADMIN$Status extends $Document {
 nd++; Registry.register(ADMIN$Status)
 
 export class $CredChecker extends $ADocument {
+  // @ts-expect-error
   op: FW$Sync
 
-  credRef (pk: string, colClass? : string) {
-    const cl = colClass || this.op.dd.name
+  credRef (cl: string, pk: string) {
     const cr = this.op.getCredRef(cl, pk, true)
     return cr && !cr.isSuspended ? cr : null
   }
 
-  check0 () : boolean {
-    return this.credRef('1') ? true : false
+  check0 (cl: string) : boolean {
+    return this.credRef(cl, '1') ? true : false
   }
 
-  check1 (pk: string) : boolean {
-    return this.credRef(pk) ? true : false
+  check1 (cl: string, pk: string) : boolean {
+    return this.credRef(cl, pk) ? true : false
   }
 
-  check2 (colName: string, val: string) : boolean {
-    const cl = this.op.dd.colls.get(colName).class
-    return this.credRef(val, cl) ? true : false
+  check2 (cl: string, val: string) : boolean {
+    return this.credRef(cl, val) ? true : false
   }
 }
 
@@ -100,7 +99,7 @@ export class $Subs extends $Document {
   subJSON: string = ''
   url: string = ''
   title: string = ''
-  maxLife: number = 0
+  // maxLife: number = 0
   defs: string[] = []
   msgs: any = {}
 
@@ -117,9 +116,9 @@ export class $Subs extends $Document {
   static async getSessionIds (op: Operation, def: string) : Promise<Set<string>> {
     const sids : Set<string> = new Set()
     const val = Crypt.shaS(def)
-    await op.db.selectDocs(op.svc + '$Subs', 'defs', filter.CONTAINS, [val], '', 0, 
+    if (op.db) await op.db.selectDocs(op.svc + '$Subs', 'defs', filter.CONTAINS, [val], '', 0, 
       (data: Uint8Array) => {
-        const d = decode(data)
+        const d: any = decode(data)
         sids.add(d['sessionId'])
       })
     return sids
@@ -157,21 +156,22 @@ export type $CredObj = {
 */
 
 export class $CredTempl {
-  svc: string
-  userId: string
-  credId: string
-  docCl: string
-  docPk: string
-  credK: string
-  nameK: string // crypté par clé K de U en base 64
-  signId: string // signature de credId par privs en base 64
+  svc: string = ''
+  userId: string = ''
+  credId: string = ''
+  docCl: string = ''
+  docPk: string = ''
+  credK: string = ''
+  nameK: string = '' // crypté par clé K de U en base 64
+  signId: string = '' // signature de credId par privs en base 64
 
-  pubv: Uint8Array
-  pubc: Uint8Array
-  props: Object
+  pubv: Uint8Array = new Uint8Array([])
+  pubc: Uint8Array = new Uint8Array([])
+  props: Object = {}
 
   constructor (obj: any) {
-    for (const p of Object.keys(obj)) this[p] = obj[p]
+    type OK1 = keyof typeof this
+    for (const p of Object.keys(obj)) this[p as OK1] = obj[p]
   }
 
   toEmbedCred () : Embed$Cred {
@@ -200,13 +200,13 @@ export class $CredTempl {
   - SOIT comme document distinct svc$Credential_docCl
     - le retour est celui du document credential
   */
-  async createCredential (op: Operation) : Promise<$Document> {
+  async createCredential (op: Operation) : Promise<$Document | undefined> {
     const clazz = op.svc + '$' + this.docCl
     const ec = this.toEmbedCred()
     const dt = DocDescriptor.get(clazz)
     if (dt.embedCreds) {
-      const doc = await op.cache.getDoc(clazz, { pk: this.docPk }) as $Document
-      if (!doc) return null
+      const doc = !op.cache ? undefined : await op.cache.getDoc(clazz, { pk: this.docPk })
+      if (!doc) return undefined
       if (!doc.embedCreds) doc.embedCreds = {}
       doc.embedCreds[this.credId] = ec
       if (doc._status !== DocStatus.NEW)
@@ -214,17 +214,20 @@ export class $CredTempl {
       return doc
     } 
     const maxLife = ec.props['limit'] || 0
-    let doc = await op.cache.getDoc(op.svc + '$Credential', 
+    let doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$Credential', 
       { credId: this.credId, docCl: this.docCl }) as $Credential
     if (doc) {
       doc.maxLife = maxLife
-      doc.cred.pubv = ec.pubv
-      doc.cred.pubc = ec.pubc
-      doc.cred.props = ec.props
+      if (!doc.cred) doc.cred = { credId: this.credId, pubv: ec.pubv, pubc: ec.pubc, props: ec.props }
+      else {
+        doc.cred.pubv = ec.pubv
+        doc.cred.pubc = ec.pubc
+        doc.cred.props = ec.props
+      }
       doc._status = DocStatus.UPD
     } else {
       const obj = { credId: this.credId, docCl: this.docCl, docPk: this.docPk, maxLife, cred: ec }
-      doc = op.cache.newDoc(op.svc + '$Credential', obj) as $Credential
+      doc = !op.cache ? undefined : op.cache.newDoc(op.svc + '$Credential', obj) as $Credential
     }
     return doc
   }
@@ -233,34 +236,35 @@ export class $CredTempl {
 export class $Credential extends $Document {
   static release = 0
 
-  credId: string
-  docCl: string
-  docPk: string // clé primaire du document maitre
-  cred: Embed$Cred
-  maxLife: number
+  credId: string = ''
+  docCl: string = ''
+  docPk: string = '' // clé primaire du document maitre
+  cred?: Embed$Cred
   // En cache d'opération SEULEMENT sur détection de credential par authRecord
   embeddingDoc?: $Document
 
   get dt () { return DocDescriptor.get(this._svc + '$' + this.docCl)}
   get isEmbed () { return this.dt.embedCreds }
   get isValid () {
-    const p = this.cred.props
+    const p = this.cred ? this.cred.props : undefined
     return p && (!p.limit || (p.limit * 60000) >= Date.now())
   }
 
-  static async update (op: Operation, credId: string, docCl: string, docPk: string, props: Object): Promise<$Document> {
+  static async update (op: Operation, credId: string, docCl: string, 
+    docPk: string, props: any): Promise<$Document | undefined> {
+
     const dt = DocDescriptor.get(op.svc + '$' + docCl)
     let doc
     if (dt.embedCreds) {
-      doc = await op.cache.getDoc(op.svc + '$' + docCl, { pk: docPk }) as $Document
-      if (!doc || !doc.embedCreds || !doc.embedCreds[credId]) return null
+      doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$' + docCl, { pk: docPk }) as $Document
+      if (!doc || !doc.embedCreds || !doc.embedCreds[credId]) return undefined
       const cred = doc.embedCreds[credId]
       cred.props = props
     } else {
-      doc = await op.cache.getDoc(op.svc + '$Credential', { credId, docCl }) as $Credential
-      if (!doc) return null
+      doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$Credential', { credId, docCl }) as $Credential
+      if (!doc) return undefined
       doc.maxLife = props['limit'] || 0
-      doc.cred.props = props
+      if (doc.cred) doc.cred.props = props
     }
     doc._status = DocStatus.UPD
     return doc
@@ -278,7 +282,7 @@ export class $Credential extends $Document {
       sel.push(x)
     }
       
-    if (sel.length) await op.db.selectDocs(op.svc + '$Credential', 'doc', filter.IN, sel, '', 0, 
+    if (sel.length && op.db) await op.db.selectDocs(op.svc + '$Credential', 'doc', filter.IN, sel, '', 0, 
       (bin: Uint8Array) => {
         try {
           const c: any = decode(bin)
@@ -292,8 +296,8 @@ export class $Credential extends $Document {
           }
           if (!x.props.limit || x.props.limit * 60000 > op.now)
             lst.push(x)
-        } catch(e) {
-          Log.error(e)
+        } catch(e: any) {
+          Log.error(e.toString())
         }    
       }) 
     return lst
@@ -307,8 +311,8 @@ export class $Credential extends $Document {
     const docPk = dd.pkValue(src)
     const val = dd.getIdx({ docCl, docPk }, 'doc')
     const lst: $Cred[] = []
-    await op.db.selectDocs('$Credential', 'doc', filter.EQ, val[0], '', 0, 
-      (bin) => {
+    if (op.db) await op.db.selectDocs('$Credential', 'doc', filter.EQ, val[0], '', 0, 
+      (bin: Uint8Array) => {
         try {
           const c: any = decode(bin)
           const x = {
@@ -321,8 +325,8 @@ export class $Credential extends $Document {
           }
           if (!x.props.limit || x.props.limit * 60000 > op.now)
             lst.push(x)
-        } catch(e) {
-          Log.error(e)
+        } catch(e: any) {
+          Log.error(e.toString())
         }
       })
     return lst
@@ -333,8 +337,8 @@ export class $Credential extends $Document {
   */
   static async listByDocEmbed (op: Operation, docCl: string, src: Object) : Promise<$Cred[]> {
     const pk = DocDescriptor.get(topCl(op.svc, docCl)).pkValue(src)
-    const doc: any = await op.cache.getDoc(op.svc + '$' + docCl, { pk })
-    const creds: $Cred[] = doc && doc.creds ? Array.from(doc.creds.values()) : []
+    const doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$' + docCl, { pk })
+    const creds: $Cred[] = doc && doc.embedCreds ? Array.from(doc.embedCreds.values()) : []
     const lst: $Cred[] = []
     for (const c of creds)
       if (!c.props.limit || c.props.limit * 60000 > op.now)
@@ -377,8 +381,6 @@ export class $Form extends $Document {
   formId: string = '' // ID universel aléatoire.
   type: string = '' // type du formulaire.
   userId: string = '' // utilisateur cible.
-  v: number = 0 //  version du document (_epoch_).
-  maxLife: number = 0 //  EPOCH en MINUTES de suppression automatique du formulaire.
   status: number = 0 // de 1 à 4.
   etcU: Object | null = null // objet de structure spécifique du type. Saisi par l'utilisateur et le tiers.
   etcT: Object | null = null // valeur de etc _avant_: en statut 1 c'est le dernier état en statut 2, en statut 2 c'est le dernier état en statut 1. Permet un _undo_ de remord de U quand il avait modifié etc mais que finalement il accepte la dernière proposition de T (et symétriquement pour T).
@@ -412,7 +414,7 @@ export class $Form extends $Document {
   // Utilisé sur opération liste filtrée
   static new (obj: $FormObj, svc: string, org: string) : $Form {
     const f = Registry.newD(svc, 'Form', obj) as $Form
-    for (const p of $Form.lp1) f[p] = obj[p]
+    for (const p of $Form.lp1) (f as any)[p] = (obj as any)[p]
     if (obj['ch']) f.ch = obj['ch']
     if (org) f._org = org
     f._clazz = svc + '$Form'
@@ -422,8 +424,8 @@ export class $Form extends $Document {
   static lp1 = ['formId', 'type', 'userId', 'v', 'maxLife', 'status', 'etcU', 'etcT', 'msgU', 'msgT', 'isInvit', 'opts']
 
   toFormObj () : $FormObj {
-    const obj = {}
-    for (const p of $Form.lp1) obj[p] = this[p]
+    const obj: any = {}
+    for (const p of $Form.lp1) obj[p] = (this as any)[p]
     obj['svc'] = this._svc
     obj['org'] = this._org
     return obj as $FormObj
@@ -437,13 +439,13 @@ export class $Form extends $Document {
     this.maxLife = Math.floor(Date.now() / 60000) + config.FORMMAXLIFE
   }
 
-  get isOld () { return Date.now() > this.maxLife * 60000 }
+  get isOld () { return this.maxLife && (Date.now() > this.maxLife * 60000) }
 
-  get ft () : FormType { 
+  get ft () : FormType | undefined { 
     return FormType.get(this._svc, this.type) }
-  get kp () : { pub: Buffer, priv: Buffer } { 
-    const x = config.keys['DCKeys'][this.ft.key]
-    return { pub: keyFromB64(x.pub), priv: keyFromB64(x.priv) }
+  get kp () : { pub: Buffer | undefined, priv: Buffer | undefined } { 
+    const x = !this.ft ? undefined : config.keys['DCKeys'][this.ft.key]
+    return { pub: x ? keyFromB64(x.pub) : undefined, priv: x ? keyFromB64(x.priv) : undefined }
   }
   async uPub (op: Operation) : Promise<Buffer> {
     const cvs = await MDandSafe.getCVS(op, this.userId)
@@ -458,10 +460,8 @@ export class $Form extends $Document {
   async decryptMsgU (op: Operation) : Promise<void> {
     if (this.msgU) {
       const pub = await this.uPub(op)
-      const aes = await Crypt.getAESKey(pub, this.kp.priv)
-      const x = await Crypt.decrypt(aes, this.msgU)
-      const y = decoder.decode(x)
-      console.log(y)
+      const aes = this.kp && this.kp.priv ? await Crypt.getAESKey(pub, this.kp.priv) : null
+      if (aes) this.msgU = await Crypt.decrypt(aes, this.msgU)
     }
   }
 
@@ -475,23 +475,23 @@ export class $Form extends $Document {
   async cryptMsgT (op: Operation) : Promise<void> {
     if (this.msgT && !this.isInvit) {
       const pub = await this.uPub(op)
-      const aes = await Crypt.getAESKey(pub, this.kp.priv)
-      this.msgT = await Crypt.crypt(aes, this.msgT)
+      const aes = this.kp && this.kp.priv ? await Crypt.getAESKey(pub, this.kp.priv) : null
+      if (aes) this.msgT = await Crypt.crypt(aes, this.msgT)
     }
   }
 
   async decryptMsgT (op: Operation) : Promise<void> {
     if (this.msgT && !this.isInvit) {
       const pub = await this.uPub(op)
-      const aes = await Crypt.getAESKey(pub, this.kp.priv)
-      this.msgT = await Crypt.decrypt(aes, this.msgT as Uint8Array)
+      const aes = this.kp && this.kp.priv ? await Crypt.getAESKey(pub, this.kp.priv) : null
+      if (aes) this.msgT = await Crypt.decrypt(aes, this.msgT as Uint8Array)
     }
   }
 
   // Calcul this.creds depuis le template du type et les arguments $x dans etc
   getCreds () : string[] {
     const creds = []
-    for(const c of this.ft.creds) {
+    if (this.ft) for(const c of this.ft.creds) {
       const i = c.indexOf('$')
       if (i !== -1) {
         const arg = c.substring(i, i + 2)
@@ -505,14 +505,15 @@ export class $Form extends $Document {
 
   // vérifie si le tiers / user qui a invoqué l'opération est habilité à lire le document
   checkAuthTP (op: Operation) : boolean {
+    if (!op.authRecord) return false
     const creds = this.getCreds()
     if (op.authRecord.userId === this.userId) return true
     if (!creds.length) return false
     if (creds.length === 1 && creds[0] === 'A')
-      return op.authRecord.isAdmin
+      return op.authRecord.isAdmin || false
     for (const c of creds) {
       const x = c.split('/')
-      const credRef = op.getCredRef(x[0], x[1], true)
+      const credRef = op.getCredRef(x[0] || '', x[1] || '', true)
       if (credRef) return true
     }
     return false
@@ -523,8 +524,8 @@ export class $Form extends $Document {
   */
   static async filteredList (op: Operation, f: string[]) : Promise<$FormObj[]> {    
     const l: $FormObj[] = []
-    await op.db.selectDocs(op.svc + '$Form', 'creds', filter.CONTAINS, f, '', 0, 
-      async (bin) => {
+    if (op.db) await op.db.selectDocs(op.svc + '$Form', 'creds', filter.CONTAINS, f, '', 0, 
+      async (bin: Uint8Array) => {
       const obj = decode(bin) as $FormObj
       const f = $Form.new(obj, op.svc, op.org) as $Form
       if (!f.isOld) {
@@ -533,8 +534,8 @@ export class $Form extends $Document {
             await f.decryptMsgT(op)
             await f.decryptMsgU(op)
             l.push(f.toFormObj())
-          } catch (e) {
-            Log.error(e)
+          } catch (e: any) {
+            Log.error(e.toString())
           }
         }
       }
