@@ -26,7 +26,7 @@ type notif = {
   sub: string
   title: string
   url: string
-  defs: Object // key: def, value: msg ou ''
+  defs: any // key: def, value: msg ou ''
   // { def1:msg1, def2:'' ... } liste les defs souscrites par la sessionId à notifier.
 }
 
@@ -49,13 +49,13 @@ export class Publisher implements AbstractOperation {
   args: any
   toNotif: Map<string, notif> // key: sessionId value: notif (ci-dessus)
   op: Operation
-  dbConnector: DbConnector
-  db: DBabstract
+  dbConnector?: DbConnector
+  db: DBabstract | null = null
   svc: string
   org: string
   now : number
   sessionNotifs: string[]
-  sessionId: string
+  sessionId: string = ''
 
   setRes(prop: string, val: any) : void {}
 
@@ -68,10 +68,10 @@ export class Publisher implements AbstractOperation {
     this.svc = op.svc
     this.org = op.org
     this.sessionNotifs = []
-    this.sessionId = op.sessionId
+    this.sessionId = op.sessionId || ''
   }
 
-  async buildMessage (notif: notif, sessionId: string) : Promise<any> {
+  async buildMessage (notif: notif, sessionId?: string) : Promise<any> {
     /* Construit UN message par session 
     Le message n'est pas envoyé à la session en cours qui recevra l'info
     en retour d'opération */
@@ -84,7 +84,7 @@ export class Publisher implements AbstractOperation {
     }
 
     // async incrHeartBeatCount (svc: string, org: string, sessionId: string) : Promise<string> {
-    const hbc = sessionId ? await this.db.incrHeartBeatCount(this.svc, this.org, sessionId) : ''
+    const hbc = sessionId && this.db ? await this.db.incrHeartBeatCount(this.svc, this.org, sessionId) : ''
 
     /* buf : objet "message" sérialisé en base64
     const message = {
@@ -108,10 +108,10 @@ export class Publisher implements AbstractOperation {
     return m
   }
 
-  async getSessionNotifs () : Promise<Object> {
+  async getSessionNotifs () : Promise<string> {
     const notif = this.toNotif.get(this.sessionId)
-    if (!notif) return null
-    const message = await this.buildMessage(notif, null)
+    if (!notif) return ''
+    const message = await this.buildMessage(notif)
     return Publisher.objToB64(message)
   }
 
@@ -145,11 +145,11 @@ export class Publisher implements AbstractOperation {
   async doSids (def: string) : Promise<void> {
     const sessionIds = await $Subs.getSessionIds(this.op, def)
     if (sessionIds.size) for(const sessionId of sessionIds) {
-      const subs = await this.op.cache.getDoc(this.op.svc + '$Subs', { sessionId }) as $Subs
+      const subs = !this.op.cache ? null : (await this.op.cache.getDoc(this.op.svc + '$Subs', { sessionId }) as unknown) as $Subs
       if (!subs) return // cette session n'a pas de souscription
       if (subs.defs.indexOf(def) === -1) return // cette session n'a pas (encore) de souscription à notifier
 
-      let tn: notif = this.toNotif.get(sessionId)
+      let tn: notif | undefined = this.toNotif.get(sessionId)
       if (!tn) tn = {
         url: subs.url,
         title: subs.title,
@@ -163,7 +163,7 @@ export class Publisher implements AbstractOperation {
   }
 
   async sendNotifications() {
-    await this.dbConnector.getConnexion(this, this.org)
+    if (this.dbConnector) await this.dbConnector.getConnexion(this, this.org)
     for(const [sessionId, notif] of this.toNotif) {
       if (sessionId !== this.sessionId)
       try {

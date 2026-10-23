@@ -42,7 +42,7 @@ export interface AbstractOperation {
   org?: string
   result: any
   args: any 
-  db: any
+  db?: any
   now: number
   baseUrl?: string
 
@@ -53,8 +53,8 @@ export interface AbstractOperation {
 export interface OperationWC extends AbstractOperation {
   org: string
   svc?: string
-  cache: any
-  authRecord: any
+  cache?: any
+  authRecord?: any
 
   hbcMode () :  number
   transac () : Promise<void>

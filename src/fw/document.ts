@@ -11,14 +11,14 @@ export class $ADocument {
 }
 
 export class $Document extends $ADocument {
-  _clazz: string
-  _org: string
+  _clazz: string = ''
+  _org: string = ''
   _status?: DocStatus
   _before?: Map<string, string[]> // Map des valeurs des collections AVANT
   _deleted?: boolean
 
-  v: number
-  release: number // numéro de release de la structure de l'objet
+  v: number = 0
+  release: number = 0 // numéro de release de la structure de l'objet
   maxLife?: number // EPOCH en MINUTES de fin de vie logique du document
   embedCreds?: Object
 
@@ -35,7 +35,7 @@ export class $Document extends $ADocument {
   et de l'indicateur de mutation (false si inchangé)
   */
   static mutate (clazz: string, data: any, options?: Object) : [any, boolean] {
-    const cl = Registry.getClass('', clazz, data)
+    const cl = Registry.getClass('', clazz, data) as any
     if (!cl) return [data, false]
     const f = cl['mutateCl']
     return f ? f(data, options) : [data, false]
@@ -45,7 +45,7 @@ export class $Document extends $ADocument {
 
   // Numéro de release de la structure de la classe
   get classRelease() : number {
-    const cl = Registry.getClass('', this._clazz, this)
+    const cl = Registry.getClass('', this._clazz, this) as any
     return cl ? cl['release'] : 0
   }
 
@@ -97,7 +97,8 @@ export class $Document extends $ADocument {
   - toutes les propriétés du document dont le nom ne commencent pas par _
   */
   serialForApp (clazz: string) : Uint8Array { 
-    const d = { clazz }
+    const d: any = { clazz }
+    // @ts-expect-error
     for (const k of Object.keys(this)) if (k.charAt[0] !== '_') d[k] = this[k]
     return encode(d)
   }
@@ -110,11 +111,11 @@ export class $Document extends $ADocument {
   embedCred (credTemplates: Object) {
     if (!this.embedCreds) this.embedCreds = {}
     if (credTemplates) for(let credId in credTemplates) {
-      const c = new $CredTempl(credTemplates[credId])
+      const c = new $CredTempl((credTemplates as any)[credId])
       const i = c.docCl.indexOf('_')
       const cl = c.svc + '$' + (i === - 1 ? c.docCl : c.docCl.substring(0, i))
       if (this._clazz === cl && this.myPk === c.docPk)
-        this.embedCreds[credId] = c.toEmbedCred()
+        (this.embedCreds as any)[credId] = c.toEmbedCred()
     }
   }
 
@@ -127,10 +128,10 @@ export class $Document extends $ADocument {
     const doc = Registry.newD('', clazz, initVals) as $Document
     doc._clazz = clazz
     doc._status = status
-    doc.release = doc.constructor['release']
+    doc.release = (doc.constructor as any)['release']
     doc.v = 0
     for (const [key, value] of Object.entries(initVals)) 
-      if (!key.startsWith('_')) doc[key] = value
+      if (!key.startsWith('_')) (doc as any)[key] = value
     doc.compile()
     /* _before: Map: traçant les collections
       - clé: nom de la collection
@@ -145,9 +146,9 @@ export class $Document extends $ADocument {
   /* Construit un "row" pour DB depuis un document - data encodé pas crypté
   */
   toRow (now: number) {
-    const d = {}
-    for (const k of Object.keys(this))
-      if (k.charAt(0) !== '_') d[k] = this[k]
+    const d: any = {}
+    // @ts-expect-error
+    for (const k of Object.keys(this)) if (k.charAt(0) !== '_') d[k] = this[k]
     d['v'] = now
     const x = encode(d)
     const row: row = {
@@ -158,9 +159,9 @@ export class $Document extends $ADocument {
     const ml = this['maxLife']; if (ml) row.maxLife = ml
     const dt = this._docDescriptor
     if (dt.colls) for (const [n, c] of dt.colls) 
-      row[n] = c.list ? this.collValue(n) : this.collValue(n)[0]
+      (row as any)[n] = c.list ? this.collValue(n) : this.collValue(n)[0]
     if (dt.indexes) for (const [n, ] of dt.indexes) 
-      row[n] = this.idxValue(n)
+      (row as any)[n] = this.idxValue(n)
     return row
   }
 

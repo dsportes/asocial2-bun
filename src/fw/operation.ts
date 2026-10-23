@@ -7,18 +7,19 @@ import config from '../config'
 import Log from './log'
 import { AppExc, DbConnector, STabstract } from './base'
 import { DBabstract, cloneRow } from './DBabstract'
-import type { row, srvStatus, updType } from './DBabstract'
+import type { row, srvStatus } from './DBabstract'
+import { updType } from './DBabstract'
 import { medCl, topCl } from './registry'
 import { DocDescriptor } from './docDescriptor'
 import { $Document, DocStatus } from './document'
 import { $Credential } from './documents'
 import type { $Cred, Embed$Cred } from './documents'
-import { Publisher } from '../src-fw/publisher'
+import { Publisher } from './publisher'
 import { Util } from './util'
 import { Crypt } from './crypt'
 import { keyFromB64 } from './b64'
 
-const encoder = new TextEncoder()
+// const encoder = new TextEncoder()
 
 type conso = {
   ndr: number, // nombre de documents lus
@@ -39,7 +40,7 @@ export class DocDescr {
   // En chache d'une opération: détention d'un Document (pas d'un row)
   doc?: $Document
 
-  constructor (clazz: string, pk: string, row: row) {
+  constructor (clazz: string, pk: string, row: row | null) {
     this.clazz = clazz; this.pk = pk
     if (row) this.row = row
   }
@@ -52,10 +53,10 @@ export class DocDescr {
   Retourne le document compilé
   */
   init () : void {
-    const d = decode(this.row.data)
+    const d = this.row && this.row.data ? decode(this.row.data) : {}
     const [data, b] = $Document.mutate(this.clazz, d)
     this.doc = $Document.newDoc(this.clazz, DocStatus.NONE, data)
-    if (this.row._org) this.doc._org = this.row._org
+    if (this.row && this.row._org) this.doc._org = this.row._org
   }
 
 }
@@ -72,39 +73,40 @@ export class Operation implements OperationWC {
     Operation.factories.set(opName, factory)
   }
 
-  opName: string
+  opName: string = ''
   result: any
   args: any 
-  now: number
-  svc: string
-  org: string
-  site: string
+  now: number = 9
+  svc: string = ''
+  org: string = ''
+  site: string = ''
 
   public acceptBadCredential : boolean = false
 
-  public hasPhase3 : boolean = false
-  public baseUrl: string
-  public today: number
-  public msSlow : number
+  public hasPhase2 = true
+  public hasPhase3 = false
+  public baseUrl: string = ''
+  public today: number = 0
+  public msSlow : number = 0
 
-  public dbConnector: DbConnector
-  public storage: STabstract
-  public authRecord : AuthRecord
-  public hbc: string // heart beat count
-  public auths: Set<string> // Set des codes des autorisations accordées
-  public sessionId: string
-  public db: DBabstract
+  public dbConnector?: DbConnector
+  public storage?: STabstract
+  public authRecord?: AuthRecord
+  public hbc?: string // heart beat count
+  public auths?: Set<string> // Set des codes des autorisations accordées
+  public sessionId?: string
+  public db?: DBabstract
 
-  public conso : conso
-  public updates : DocDescr[]
-  public hasUpdates : boolean
-  public impactedSubs : ImpactedSubs
-  public hasTasks : boolean
+  public conso?: conso
+  public updates?: DocDescr[]
+  public hasUpdates: boolean = false
+  public impactedSubs?: ImpactedSubs
+  public hasTasks: boolean = false
 
-  public cache : Cache
+  public cache?: Cache
 
-  get SUBSSHORTMAXLIFE() { return Math.floor(this.now / 60000) + config.SUBSMAXLIFEINMINUTES[0] }
-  get SUBSLONGMAXLIFE() { return Math.floor(this.now / 60000) + config.SUBSMAXLIFEINMINUTES[1] }
+  get SUBSSHORTMAXLIFE() { return Math.floor(this.now / 60000) + (config.SUBSMAXLIFEINMINUTES[0] || 3 * 24 * 60) }
+  get SUBSLONGMAXLIFE() { return Math.floor(this.now / 60000) + (config.SUBSMAXLIFEINMINUTES[1] || 1 * 24 * 60) }
 
   assertKO (src: string, code: number, args: string[]) {
     const x = args && args.length ? JSON.stringify(args) : ''
@@ -137,31 +139,31 @@ export class Operation implements OperationWC {
   delRes(prop: string) { delete this.result[prop] }
 
   /* AJOUTE la valeur en fin de la propriété Array 'prop' du résultat (et la retourne)*/
-  addRes(prop: string, val) {
+  addRes(prop: string, val: any) {
     let l = this.result[prop]; if (!l) { l = []; this.result[prop] = l }
     l.push(val)
     return val
   }
 
   requireAdmin () {
-    if (!this.authRecord.isAdmin) 
+    if (!this.authRecord || !this.authRecord.isAdmin) 
       throw new AppExc(101, 'operation_admin_required', this)
   }
 
   requireAuth () {
-    if (!this.authRecord.userId) 
+    if (!this.authRecord || !this.authRecord.userId) 
       throw new AppExc(101, 'operation_authentication_required', this, [this.opName])
   }
 
   requireR () {
-    const s = this.authRecord.svcOrgStatus
+    const s = this.authRecord ? this.authRecord.svcOrgStatus : 0
     if (s === 0 || s === 9) 
       throw new AppExc(101, 'operation_svcorg_read_required', this, 
         [this.args.svc || '?', this.args.org || '?', this.opName, '' + s])
   }
 
   requireRW () {
-    const s = this.authRecord.svcOrgStatus
+    const s = this.authRecord ? this.authRecord.svcOrgStatus : 9
     if (s === 0 || s === 2 || s === 9) 
       throw new AppExc(101, 'operation_svcorg_readwrite_required', this, 
         [this.args.svc || '?', this.args.org || '?', this.opName, '' + s])
@@ -171,9 +173,10 @@ export class Operation implements OperationWC {
   et relatif à ce rôle et cet id de document.
   Si noex, retourne null plutôt que de sortir en exception si aucun n'a été trouvé.
   */
-  getCredRef (docCl: string, docPk: string, noex?: boolean, checkSusp?: boolean) : CredRef {
+  getCredRef (docCl: string, docPk: string, noex?: boolean, checkSusp?: boolean) 
+  : CredRef | null {
     this.requireAuth()
-    return this.authRecord.getCredRef(docCl, docPk, noex || false, checkSusp || false)
+    return !this.authRecord ? null : this.authRecord.getCredRef(docCl, docPk, noex || false, checkSusp || false)
   }
 
   async transac (): Promise<void> {
@@ -182,17 +185,17 @@ export class Operation implements OperationWC {
       await authRecord.process()
     
     await this.phase2(this.args)
-    this.cache.commit()
+    if (this.cache) this.cache.commit()
   }
 
   async run () : Promise<void>{
     try {
-      if (this.phase2) for (let retry = 0; retry < 3; retry++) {
+      if (this.hasPhase2) for (let retry = 0; retry < 3; retry++) {
         if (retry) {
           this.now = Date.now()
           this.today = Math.floor(this.now / 86400000)
         }
-        await this.dbConnector.getConnexion(this, this.org)
+        if (this.dbConnector) await this.dbConnector.getConnexion(this, this.org)
         this.msSlow = 0
         this.updates = []
         this.hasTasks = false
@@ -200,12 +203,19 @@ export class Operation implements OperationWC {
         this.conso = { ndr: 0, ndw: 0, vdr: 0, vdw: 0, nfr: 0, nfw: 0, vfr: 0, vfw: 0 }
         this.result = { now: this.now, srvBUILD: config.BUILD }
         
-        const [hbc, err] = await this.db.doTransaction() // Fait un appel à transac
+        let hbc = null
+        let err = null
+        if (this.db) {
+          const x = await this.db.doTransaction() // Fait un appel à transac
+          hbc = x[0]
+          err = x[1]
+        }
 
         if (!err) {
           if (hbc) 
             this.setRes('hbc', hbc)
-          for(let i = 0; i < this.updates.length; i++) {
+          if (this.updates && this.updates.length) for(let i = 0; i < this.updates.length; i++) {
+            // @ts-expect-error
             const upd: DocDescr = this.updates[i]
             Cache.updateCache(this, upd)
             delete upd.doc
@@ -221,12 +231,12 @@ export class Operation implements OperationWC {
           throw new AppExc(110, 'DB_lock', this, [this.opName, this.args.svc || '?', this.args.site || '?', err])
         }
 
-        this.db.disconnect()
+        if (this.db) this.db.disconnect()
         await Util.sleep(2000)
       }
 
       if (this.hasPhase3) {
-        if (!this.db)
+        if (!this.db && this.dbConnector)
           await this.dbConnector.getConnexion(this, this.org)
         await this.phase3() // peut ajouter des résultats et db HORS transaction
       }
@@ -245,12 +255,12 @@ export class Operation implements OperationWC {
 
       // if (this.hasTasks) Taches.prochTache(this.db, this.storage)
       
-      await this.db.disconnect()
+      if (this.db) await this.db.disconnect()
 
       if (this.msSlow) await Util.sleep(this.msSlow)
       
       return this.result
-    } catch (e) {
+    } catch (e: any) {
       if (this.db) await this.db.disconnect()
       if (config.debugLevel > 1) 
         Log.error(this.opName + ' : ' + new Date(this.now).toISOString() + ' : ' + e.toString())
@@ -272,7 +282,7 @@ export class Operation implements OperationWC {
   invalid (par: string) { 
     throw new AppExc(103, 'invalid_argument', this, [this.opName, this.args.svc || '', par]) }
 
-  objectValue (par: string, req: boolean) : Object {
+  objectValue (par: string, req: boolean) : Object | null {
     const [present, value, type] = this.type(par, req)
     if (!present && !req) return null
     if (present && type !== 'object')
@@ -280,7 +290,7 @@ export class Operation implements OperationWC {
     return value
   }
 
-  binValue (par: string, req: boolean) : Uint8Array {
+  binValue (par: string, req: boolean) : Uint8Array | null {
     const [present, value, type] = this.type(par, req)
     if (!present && !req) return null
     if (present && type !== 'object' && !(value instanceof Uint8Array))
@@ -359,7 +369,7 @@ export class CredRef {
       credId: ec.credId,
       svc: doc._svc,
       org: doc._org,
-      docCl: isEmbed ? this.doc._docCl : this.doc['docCl'],
+      docCl: isEmbed ? this.doc._docCl : (this.doc as any)['docCl'],
       docPk: this.doc.myPk,
       props: ec.props,
       pubv: ec.pubv,
@@ -389,25 +399,24 @@ export class CredRef {
 export class AuthRecord {
   // devAppToken: string // token identifiant l'exécution de l'application
   op: Operation
-  org: string
-
-  svc: string
-  args: Object
+  org: string = ''
+  svc: string = ''
+  args: any
   userId: string
-  sessionId: string
-  time: number
-  userSign: Uint8Array
-  signatures: Object
-  challenge: Uint8Array
-  isAdmin: boolean
-  svcOrgStatus: number
-  pemC: string // clé publique de cryptage du userId
-  pemV: string // clé publique de vérification du userId
+  sessionId?: string
+  time?: number
+  userSign?: Uint8Array
+  signatures?: any
+  challenge?: Uint8Array
+  isAdmin?: boolean
+  svcOrgStatus: number = 0
+  // pemC: string // clé publique de cryptage du userId
+  // pemV: string // clé publique de vérification du userId
 
   /* Clé: ref : docCl/docId - Cred dont la signature est ok*/
-  creds: Map<string, CredRef>
+  creds: Map<string, CredRef> = new Map()
   /* ref SANS Credential OU dont la signature est KO */
-  koCreds: Set<string>
+  koCreds: Set<string> = new Set()
 
   constructor (op: Operation) {
     this.op = op
@@ -422,8 +431,6 @@ export class AuthRecord {
       this.signatures = ar.signatures
       this.challenge = Buffer.from(this.userId + '/' + this.time)
       this.isAdmin = config.ADMINUSERS.has(this.userId)
-      this.creds = new Map()
-      this.koCreds= new Set()
     } else {
       this.userId = ''
       this.isAdmin = false
@@ -434,16 +441,16 @@ export class AuthRecord {
     let dd = await Cache.getRow(this.op, 'ADMIN$Status', { svc: this.op.args.svc}, config.STATUSLAZYNESS)
     if (!dd) return 0
     dd.init()
-    let s = dd.doc['st'] // s.st: 1 2 ou 9
+    let s = dd.doc ? (dd.doc as any)['st'] : 9 // s.st: 1 2 ou 9
     if (s === 9) return 9
     dd = await Cache.getRow(this.op, this.op.args.svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
     if (!dd) return 0
     dd.init()
-    return dd.doc['st']
+    return dd.doc ? (dd.doc as any)['st'] : 9 
   }
 
-  getCredRef (docCl: string, docPk: string, noex?: boolean, checkSusp?: boolean) : CredRef {
-    const cr = this.creds.get(docCl + '/' + docPk)
+  getCredRef (docCl: string, docPk: string, noex?: boolean, checkSusp?: boolean) : CredRef | null {
+    const cr = this.creds ? this.creds.get(docCl + '/' + docPk) : null
     if (!cr) {
       if (noex) return null
       throw new AppExc(103, 'missing_credential', this.op, 
@@ -463,7 +470,7 @@ export class AuthRecord {
     const cvs = await MDandSafe.getCVS(this.op, this.userId)
     if (!cvs) throw new AppExc(101, 'operation_no_user_keys_cv', this.op, [this.op.opName, this.userId])
     const v = cvs[1]
-    const ok = await Crypt.verify(keyFromB64(v), this.userSign, this.challenge)
+    const ok = this.userSign && this.challenge ? await Crypt.verify(keyFromB64(v), this.userSign, this.challenge) : false
     if (!ok) throw new AppExc(101, 'operation_bad_signature', this.op, [this.op.opName, this.userId])
     
     for (const ref in this.signatures) {
@@ -472,24 +479,24 @@ export class AuthRecord {
       const docCl = i === -1 ? ref : ref.substring(0, i)
       const docPk = i === -1 ? '' : ref.substring(i + 1)
       const dt = DocDescriptor.get(topCl(this.op.svc, docCl))
-      let credRef: CredRef
+      let credRef: CredRef | undefined
       if (dt.embedCreds) { // Recherche du Credential dans le creds du document
-        const d = await this.op.cache.getDoc(this.op.svc + '$' + docCl, { pk: docPk }) as $Document
+        const d = !this.op.cache ? null : await this.op.cache.getDoc(this.op.svc + '$' + docCl, { pk: docPk }) as $Document
         if (d && d.embedCreds) {
-          const ec = d.embedCreds[credId]
+          const ec = (d.embedCreds as any)[credId]
           if (ec) credRef = new CredRef(d, ec, true)
         }
       } else { // Recherche du Credential par sa pk
-        const c = await this.op.cache.getDoc(this.op.svc + '$Credential', { credId, docCl }) as $Credential
+        const c = !this.op.cache ? null : await this.op.cache.getDoc(this.op.svc + '$Credential', { credId, docCl }) as $Credential
         if (c && c.docCl === docCl && c.docPk === docPk) {
           credRef = new CredRef(c, c.cred, false)
-          if (!credRef.isValid)
+          if (!credRef.isValid && this.op.cache)
             this.op.cache.delDoc(this.svc + '$Credential', c.myPk)
         }
       }
-      const ok = !credRef || !credRef.isValid ? false 
+      const ok = !credRef || !credRef.isValid || !credRef.cred.pubv || !this.challenge ? false 
         : await Crypt.verify(Buffer.from(credRef.cred.pubv), sign, this.challenge)
-      if (ok) this.creds.set(ref, credRef) 
+      if (ok && this.creds && credRef) this.creds.set(ref, credRef) 
       else this.koCreds.add(ref)
       this.svcOrgStatus = await this.getSvcOrgStatus()
     }
@@ -538,16 +545,16 @@ export class Cache {
 
   // Cache locale à l'opération
   op: Operation
-  db : DBabstract
-  conso : number[]
-  docs : Map<string, DocDescr>
+  db?: DBabstract
+  conso?: number[]
+  docs: Map<string, DocDescr>
 
   static MAX_CACHE_SIZE = 1000
   static LAZY_MS = 5000
 
   // Cache globale
-  static globCache : Map<string, Map<string, cacheItem>> = new Map()
-  static srvStatus : srvStatus = null
+  static globCache: Map<string, Map<string, cacheItem>> = new Map()
+  static srvStatus: srvStatus | null = null
 
   static orgCache(op: Operation) : Map<string, cacheItem> {
     const org = op.org || (op.opName.startsWith('ADMIN') ? 'ADMIN$' :'')
@@ -567,13 +574,14 @@ export class Cache {
   - lazy: nombre de SECONDES d'ancienneté accepté pour une lecture non bloquante
   */
   static async getRow(op: Operation, clazz: string, src: Object, lazy?: number)
-    : Promise<DocDescr> {
+    : Promise<DocDescr | null> {
+    if (!op.db) return null
     const topClazz = topCl(op.svc, clazz)
     const oc = Cache.orgCache(op)
     const now = Date.now()
     const pk = DocDescriptor.get(topClazz).pkValue(src)
     const k = DocDescr.key(clazz, pk)
-    let item = oc.get(k)
+    let item: cacheItem | null = oc.get(k) || null
     if (item && lazy && ((now - item.time) < (lazy * Cache.LAZY_MS))) {
       item.lru = now
       return new DocDescr(topClazz, pk, cloneRow(item.row))
@@ -590,6 +598,7 @@ export class Cache {
     }
 
     // Pas trouvé en cache - recherche en base
+    // @ts-expect-error
     const row = await op.db.oneRow(topClazz, pk, item ? item.row.v : 0)
     if (!row) return null // Pas trouvé en base
     // trouvé en base, mis en cache
@@ -602,21 +611,23 @@ export class Cache {
     const oc = Cache.orgCache(op)
     const k = DocDescr.key(dd.clazz, dd.pk)
     let item = oc.get(k)
-    if (dd.doc._status === DocStatus.DEL) { // suppression
+    if (dd.doc && dd.doc._status === DocStatus.DEL) { // suppression
       if (item) {
         item.lru = op.now
         item.row.deleted = true
         item.row.data = encode({ deleted: true, v: op.now, _pk: item.row.pk, _clazz: dd.clazz })
       }
     } else {
-      if (item) { // remplacement éventuel
-        if (dd.row.v > item.row.v) {
-          item.row = dd.row
-          item.lru = op.now
-          item.time = op.now
+      if (dd.row) {
+        if (item) { // remplacement éventuel
+          if (dd.row.v > item.row.v) {
+            item.row = dd.row
+            item.lru = op.now
+            item.time = op.now
+          }
+        } else { // insertion d'un nouveau
+          item = { lru: op.now, time: op.now, row: dd.row }
         }
-      } else { // insertion d'un nouveau
-        item = { lru: op.now, time: op.now, row: dd.row }
       }
     }
     if (item) oc.set(k, item)
@@ -625,7 +636,7 @@ export class Cache {
   static _purge (op: Operation) {
     const oc = Cache.orgCache(op)
     if (oc.size > Cache.MAX_CACHE_SIZE) {
-      const t = []
+      const t: any[] = []
       oc.forEach((value, key) => { t.push({ lru: value.lru, k: key }) } )
       t.sort((a, b) => { return a.lru < b.lru ? -1 : (a.lru > b.lru ? 1 : 0) })
       for (let i = 0; i < Cache.MAX_CACHE_SIZE / 2; i++) {
@@ -644,13 +655,13 @@ export class Cache {
   /* Retourne ou lit de la base le Document cité par src:
   - src : objet contenant les propriétés de la pk
   */
-  async getDoc (clazz: string, src?: Object, assert?: string) : Promise<$Document | null> {
+  async getDoc (clazz: string, src?: any, assert?: string) : Promise<$Document | null> {
     const topClazz = topCl(this.op.svc, clazz)
     const dx = DocDescriptor.get(topClazz)
     const pk = dx.pkValue(src)
     const k = DocDescr.key(clazz, pk)
-    let dd = this.docs.get(k)
-    if (dd) return dd.doc
+    let dd = this.docs.get(k) || null
+    if (dd && dd.doc) return dd.doc
     dd = await Cache.getRow(this.op, clazz, src)
     if (!dd) {
       if (assert) this.op.assertKO(assert, 25, [clazz, dx.pkValue(src, false)])
@@ -665,13 +676,14 @@ export class Cache {
   Si le document était déjà présent et plus récent, il est CONSERVE.
   Retourne le document.
   */
-  putRow (clazz: string, row: row) : $Document {
+  putRow (clazz: string, row: row) : $Document | null {
     const k = DocDescr.key(clazz, row.pk)
     let dd = this.docs.get(k)
-    if (dd) return dd.doc
+    if (dd && dd.doc) return dd.doc
     dd = new DocDescr(clazz, row.pk, row)
     dd.init()
     this.docs.set(k, dd)
+    // @ts-expect-error
     return dd.doc
   }
 
@@ -684,7 +696,7 @@ export class Cache {
     const pk = DocDescriptor.get(topClazz).pkValue(src)
     const k = DocDescr.key(clazz, pk)
     let dd = this.docs.get(k)
-    if (dd) return dd.doc
+    if (dd && dd.doc) return dd.doc
     dd = new DocDescr(clazz, pk, null)
     dd.doc = $Document.newDoc(clazz, DocStatus.NEW, src || {})  
     dd.doc._org = this.op.org
@@ -702,7 +714,7 @@ export class Cache {
   delDoc (clazz: string, pk: string) {
     const k = DocDescr.key(clazz, pk)
     let dd = this.docs.get(k)
-    if (dd) {
+    if (dd && dd.doc) {
       if (dd.doc._status === DocStatus.NEW) this.docs.delete(k)
       else dd.doc._status = DocStatus.DEL
     }
@@ -715,31 +727,32 @@ export class Cache {
     this.op.impactedSubs = new ImpactedSubs()
     this.op.updates = []
     for (const [k, dd] of this.docs) {
+      if (!dd.doc) continue
       if (dd.doc._status === DocStatus.NONE) continue
       const doc = dd.doc
-      let row : row
+      let row: row | null = null
       if (doc._status === DocStatus.UPD) {
         row = doc.toRow(this.op.now)
         dd.row = row
         this.op.updates.push(dd)
-        this.db.writeRow(updType.UPDATE, dd.clazz, row)
+        if (this.db) this.db.writeRow(updType.UPDATE, dd.clazz, row)
       } else if (doc._status === DocStatus.NEW) {
         row = doc.toRow(this.op.now)
         dd.row = row
         this.op.updates.push(dd)
-        this.db.writeRow(updType.CREATE, dd.clazz, row)
+        if (this.db) this.db.writeRow(updType.CREATE, dd.clazz, row)
       } else { // DocStatus.DEL
         if (doc._docDescriptor.sync) {
           row = doc.toZombiRow(this.op.now)
           dd.row = row
           this.op.updates.push(dd)
-          this.db.writeRow(updType.UPDATE, dd.clazz, row)
+          if (this.db) this.db.writeRow(updType.UPDATE, dd.clazz, row)
         }
-        else this.db.deleteRow(dd.clazz, dd.pk)
+        else if (this.db) this.db.deleteRow(dd.clazz, dd.pk)
       }
       if (doc._docDescriptor.sync && doc._docDescriptor.colls) {
         const is = this.op.impactedSubs.getEntry(dd.clazz, dd.pk)
-        this.manageColls(dd.clazz, doc, row, is)
+        if (row) this.manageColls(dd.clazz, doc, row, is)
       }
     }
     this.op.hasUpdates = this.op.updates.length !== 0
@@ -772,21 +785,25 @@ export class Cache {
 
       if (doc._status === DocStatus.DEL) { 
         // le ou les termes "before" quittent le ou les (list) documents
-        if (collection.list) for (const x of b) this.db.writeRowQ(clazz, n, row.pk, row.v, x)
-        else this.db.writeRowQ(clazz, n, row.pk, row.v, b[0])
+        if (this.db) {
+          if (collection.list) for (const x of b) this.db.writeRowQ(clazz, n, row.pk, row.v, x)
+          else this.db.writeRowQ(clazz, n, row.pk, row.v, b[0] || '')
+        }
         continue
       }
 
       // Il y avait une valeur AVANT (b existe): diffère-t-elle de celle APRES ?
       // Tous les termes "before" qui y étaient AVANT 
       // et ne le sont plus MAINTENANT quittent le document
-      if (collection.list) {
-        const as = a ? new Set(a) : new Set()
-        for (const x of b) 
-          if (!as.has(x))
-            this.db.writeRowQ(clazz, n, row.pk, row.v, x)
-      } else if (a && (a[0] !== b[0])) 
-        this.db.writeRowQ(clazz, n, row.pk, row.v, b[0])
+      if (this.db) {
+        if (collection.list) {
+          const as = a ? new Set(a) : new Set()
+          for (const x of b) 
+            if (!as.has(x))
+              this.db.writeRowQ(clazz, n, row.pk, row.v, x)
+        } else if (a && (a[0] !== b[0])) 
+          this.db.writeRowQ(clazz, n, row.pk, row.v, b[0] || '')
+      }
     }
   }
 } 

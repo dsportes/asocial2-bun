@@ -1,16 +1,18 @@
-import { config } from '../src/config'
-import { Log, AppExc } from '../src-fw/log'
-import { $ADocument, $Document, DocStatus } from '../src-fw/document'
-import { Crypt } from '../src-fw/crypt'
-import { filter } from '../src-fw/iDbGeneric'
 import { decode } from '@msgpack/msgpack'
-import { Operation } from '../src-fw/operation'
-import { FW$Sync } from '../src-fw/operations'
-import { Registry, topCl } from '../src-fw/registry'
-import { DocDescriptor, FormType } from '../src-fw/docDescriptor'
-import { keyFromB64 } from '../src-fw/b64'
-import { MDandSafe  } from '../src-fw/index'
-import { SetCred } from '../src-fw/safeop'
+
+import config from '../config'
+import Log from './log'
+import { AppExc } from './base'
+import { $ADocument, $Document, DocStatus } from './document'
+import { Crypt } from './crypt'
+import { filter } from './DBabstract'
+import { Operation } from './operation'
+import { FW$Sync } from './operations'
+import { Registry, topCl } from './registry'
+import { DocDescriptor, FormType } from './docDescriptor'
+import { keyFromB64 } from './b64'
+import { MDandSafe  } from './mdandsafe'
+import type { SetCred } from './safeop'
 // import { Util } from '../src-fw/util'
 
 const decoder = new TextDecoder()
@@ -94,13 +96,13 @@ msgs: chaque définition di dans defs _peut_ avoir un message associé dans msgs
 export class $Subs extends $Document {
   static release = 0
 
-  sessionId: string
-  subJSON: string
-  url: string
-  title: string
-  maxLife: number
-  defs: string[]
-  msgs: Object
+  sessionId: string = ''
+  subJSON: string = ''
+  url: string = ''
+  title: string = ''
+  maxLife: number = 0
+  defs: string[] = []
+  msgs: any = {}
 
   static def0 (clazz: string) : string { return clazz }
 
