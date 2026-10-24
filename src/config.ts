@@ -1,4 +1,3 @@
-import { env, exit } from 'process'
 import keys from './keys.jsonc'
 import Log from './fw/log'
 import type { BaseConfig } from './fw/types'
@@ -6,7 +5,7 @@ import { DbConnector, STabstract } from './fw/base'
 
 const admin1 = 'VpOZWh0Zeh20Tk5C1BNi'
 const admin2 = 'Q8v99KlnO04zV41Z1MVx'
-const PROD = false
+const PROD = process.env.NODE_ENV === 'production'
 
 /* Possibilité d'attacher un log "Google-cloud" au log générique Winston */
 // import { LoggingWinston } from '@google-cloud/logging-winston'
@@ -35,14 +34,14 @@ export default {
   MASTERDIR_URL: 'http://localhost:8091/master/',
   STDSAFE_URL: 'http://localhost:8091/safe/',
 
-  STORAGE_EMULATOR_HOST: env['STORAGE_EMULATOR_HOST'] || '',
-  FIRESTORE_EMULATOR_HOST: env['FIRESTORE_EMULATOR_HOST'] || '',
+  STORAGE_EMULATOR_HOST: process.env.STORAGE_EMULATOR_HOST || '',
+  FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || '',
 
   dbConnectorClasses: { },
   databases: new Map<string, DbConnector>(),
   storages: new Map<string, STabstract>(),
 
-  port: env['PORT'] || 8080,
+  port: process.env.PORT || 8080,
   https: false,
   origins: new Set<string>(),
 
