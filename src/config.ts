@@ -32,8 +32,8 @@ export default {
   },
   ADMINUSERS: new Set([admin1, admin2]),
   MASTERDIRADMINUSERS: new Set([admin1]),
-  MASTERDIR_URL: 'http://localhost:8091/master',
-  STDSAFE_URL: 'http://localhost:8091/safe',
+  MASTERDIR_URL: 'http://localhost:8091/master/',
+  STDSAFE_URL: 'http://localhost:8091/safe/',
 
   STORAGE_EMULATOR_HOST: env['STORAGE_EMULATOR_HOST'] || '',
   FIRESTORE_EMULATOR_HOST: env['FIRESTORE_EMULATOR_HOST'] || '',

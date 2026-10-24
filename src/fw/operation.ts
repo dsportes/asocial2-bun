@@ -482,14 +482,17 @@ export class AuthRecord {
   }
 
   async process () : Promise<void> {
-    if (!this.signatures) return
-    const cvs = await MDandSafe.getCVS(this.op, this.userId)
-    if (!cvs) throw new AppExc(101, 'operation_no_user_keys_cv', this.op, [this.op.opName, this.userId])
-    const v = cvs[1]
-    const ok = this.userSign && this.challenge ? await Crypt.verify(keyFromB64(v), this.userSign, this.challenge) : false
-    if (!ok) throw new AppExc(101, 'operation_bad_signature', this.op, [this.op.opName, this.userId])
+    if (this.userSign) {
+      const cvs = await MDandSafe.getCVS(this.op, this.userId)
+      if (!cvs) throw new AppExc(101, 'operation_no_user_keys_cv', this.op, [this.op.opName, this.userId])
+      const v = cvs[1]
+      const ok = this.userSign && this.challenge ? await Crypt.verify(keyFromB64(v), this.userSign, this.challenge) : false
+      if (!ok) throw new AppExc(101, 'operation_bad_signature', this.op, [this.op.opName, this.userId])
+    }
+
+    this.svcOrgStatus = await this.getSvcOrgStatus()
     
-    for (const ref in this.signatures) {
+    if (this.signatures) for (const ref in this.signatures) {
       const [credId, sign] = this.signatures[ref]
       const i = ref.indexOf('/')
       const docCl = i === -1 ? ref : ref.substring(0, i)
@@ -516,7 +519,6 @@ export class AuthRecord {
         : await Crypt.verify(Buffer.from(credRef.cred.pubv), sign, this.challenge)
       if (ok && this.creds && credRef) this.creds.set(ref, credRef) 
       else this.koCreds.add(ref)
-      this.svcOrgStatus = await this.getSvcOrgStatus()
     }
 
     if (config.debugLevel > 1) {

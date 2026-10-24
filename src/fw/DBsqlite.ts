@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite'
 import { encode } from '@msgpack/msgpack'
 
 import Log from '../fw/log'
-import { AppExc, DbConnector, DbConnexion } from './base'
+import { AppExc, DbConnector } from './base'
 import { DBabstract, zombiLapse } from './DBabstract'
 import { MDopn, updType } from './DBabstract'
 import type { filter, expList, expListQ, 
@@ -261,7 +261,7 @@ export class SQLiteConnexion extends DBabstract {
   }
 
   private trap (e: any) : [string, string] { // 1: busy, 0: OK - sinon exception
-    if (e.constructor.name !== 'SqliteError') throw e
+    if (e.code !== 'SQLITE_ERROR') throw e
     if (e.code && !e.code.startsWith('SQLITE_BUSY')) throw e
     const s = (e.code || '???') + '\n' + (e.message || '') + '\n' + 
       (e.stack ? e.stack + '\n' : '') + this.lastSql.join('\n')
@@ -276,8 +276,8 @@ export class SQLiteConnexion extends DBabstract {
   */
   override async mdGetValue (key: string, v: number) : Promise<[number, string]> { // [v, json] { s1: u1, s2: u2 ...}
     try {
-      const stmt = this.sql.prepare('SELECT value, v FROM ZZVALUES WHERE key = @key AND v > @v;')
-      let row = stmt.get({ key, v })
+      const stmt = this.sql.query('SELECT value, v FROM ZZVALUES WHERE key = $key AND v > $v;')
+      let row = stmt.get({ $key: key, $v: v })
       return row ? [row.v, row.value] : [0, '']
     } catch (e: any) {
       throw new AppExc (108, 'masterdir_db_error', null, ['mdGetValue', e])
@@ -286,9 +286,9 @@ export class SQLiteConnexion extends DBabstract {
 
   override async mdSetValue (key: string, v: number, value: string) : Promise<void> {
     try {
-      const stmt = this.sql.prepare('INSERT INTO ZZVALUES ' +
-        ' (key, v, value) VALUES (@key, @v, @value) ON CONFLICT (key) DO UPDATE SET v = excluded.v, value = excluded.value;')
-      stmt.run({key, v, value})
+      const stmt = this.sql.query('INSERT INTO ZZVALUES ' +
+        ' (key, v, value) VALUES ($key, $v, $value) ON CONFLICT (key) DO UPDATE SET v = excluded.v, value = excluded.value;')
+      stmt.run({$key: key, $v: v, $value: value})
     } catch (e: any) {
       throw new AppExc (108, 'masterdir_db_error', null, ['mdSetValue', e])
     }
@@ -320,21 +320,21 @@ export class SQLiteConnexion extends DBabstract {
     const x: any = {}; for(const p of this.USERSCOLSI) x[p] = row[p]
     if (!x['hsha1']) x['hsha1'] = ''
     if (!x['hsha2']) x['hsha2'] = ''
-    const llq = this.quarter(new Date())
-    if (llq > x['llq']) {
-      const stmt = this.sql.prepare('UPDATE ZZUSERS SET llq = @llq WHERE userId = @userId')
-      stmt.run({ userId: row['userId'], llq })
-      x['llq'] = llq
+    const $llq = this.quarter(new Date())
+    if ($llq > x['llq']) {
+      const stmt = this.sql.query('UPDATE ZZUSERS SET llq = $llq WHERE userId = $userId')
+      stmt.run({ $userId: row['userId'], $llq })
+      x['llq'] = $llq
     }
     return x as MDuser
   }
 
   override async mdAliasFree (alias: string) : Promise<boolean> {
-    let stmt = this.sql.prepare('SELECT * FROM ZZUSERS WHERE hsha1 = @alias')
-    let row = stmt.get( {alias} )
+    let stmt = this.sql.query('SELECT * FROM ZZUSERS WHERE hsha1 = $alias')
+    let row = stmt.get( {$alias: alias} )
     if (row) return false
-    stmt = this.sql.prepare('SELECT * FROM ZZUSERS WHERE hsha2 = @alias')
-    row = stmt.get( {alias} )
+    stmt = this.sql.query('SELECT * FROM ZZUSERS WHERE hsha2 = $alias')
+    row = stmt.get( {$alias: alias} )
     if (row) return false
     return true
   }
@@ -352,22 +352,6 @@ export class SQLiteConnexion extends DBabstract {
     if (row) return this.normRow(row)
     return null
   }
-
-  /*
-  override async mdUserGet (userId: string, alias?: boolean) : Promise<MDuser | null> {
-    let stmt = this.sql.prepare('SELECT * FROM ZZUSERS WHERE userId = @userId')
-    let row = stmt.get( {userId: userId} )
-    if (row) return this.normRow(row)
-    if (!alias) return null
-    stmt = this.sql.prepare('SELECT * FROM ZZUSERS WHERE hsha1 = @userId')
-    row = stmt.get( {userId: userId} )
-    if (row) return this.normRow(row)
-    stmt = this.sql.prepare('SELECT * FROM ZZUSERS WHERE hsha2 = @userId')
-    row = stmt.get( {userId: userId} )
-    if (row) return this.normRow(row)
-    return null
-  }
-  */
 
   /* Méthodes privées ************************************/
   eqObj (a: any, b: any, lp: string[]) {
@@ -387,8 +371,8 @@ export class SQLiteConnexion extends DBabstract {
   Les alias ne doivent avoir déjà été attribués
   */
   async mdUserNew (mdUser: MDuser) : Promise<number> {
-    let stmt = this.sql.prepare('SELECT * FROM ZZUSERS WHERE userId = @userId')
-    let row = stmt.get( {userId: mdUser.userId} )
+    let stmt = this.sql.query('SELECT * FROM ZZUSERS WHERE userId = $userId')
+    let row = stmt.get( {$userId: mdUser.userId} )
     if (mdUser.invit) {
       if (!row || mdUser.invit !== row.hsha1 || row.hshK || row.C || row.V) return 13
     } else {
@@ -397,32 +381,32 @@ export class SQLiteConnexion extends DBabstract {
         return 12
       }
     }
-    stmt = this.sql.prepare('SELECT userId FROM ZZUSERS WHERE hsha1 = @hsha1 OR hsha2 = @hsha1')
-    row = stmt.get( {hsha1: mdUser.hsha1} )
+    stmt = this.sql.query('SELECT userId FROM ZZUSERS WHERE hsha1 = $hsha1 OR hsha2 = $hsha1')
+    row = stmt.get( {$hsha1: mdUser.hsha1} )
     if (row) return 11
-    stmt = this.sql.prepare('SELECT userId FROM ZZUSERS WHERE hsha1 = @hsha2 OR hsha2 = @hsha2')
-    row = stmt.get( {hsha2: mdUser.hsha2} )
+    stmt = this.sql.query('SELECT userId FROM ZZUSERS WHERE hsha1 = $hsha2 OR hsha2 = $hsha2')
+    row = stmt.get( {$hsha2: mdUser.hsha2} )
     if (row) return 12
-    if (mdUser.invit) { // ZZUSERS SET ssha1 = @ssha1, ssha2 = @ssha2 WHERE ...
+    if (mdUser.invit) { // ZZUSERS SET ssha1 = $ssha1, ssha2 = $ssha2 WHERE ...
       const s1 = []
-      for(const x of this.USERSCOLSU) s1.push(x + ' = @' + x)
-      stmt = this.sql.prepare('UPDATE ZZUSERS SET ' + s1.join(', ') + ' WHERE userId = @userId;')
+      for(const x of this.USERSCOLSU) s1.push(x + ' = $' + x)
+      stmt = this.sql.query('UPDATE ZZUSERS SET ' + s1.join(', ') + ' WHERE userId = $userId;')
     } else {
       const s1 = this.USERSCOLSI.join(',')
-      const s2 = this.USERSCOLSI.join(', @')
-      stmt = this.sql.prepare('INSERT INTO ZZUSERS (' + s1 + ') VALUES (@' + s2 + ');')
+      const s2 = this.USERSCOLSI.join(', $')
+      stmt = this.sql.query('INSERT INTO ZZUSERS (' + s1 + ') VALUES ($' + s2 + ');')
     }
     const x: any = {}
-    for(const p of this.USERSCOLSI) x[p] = (mdUser as any)[p]
-    if (x['hsha1'] === '') x['hsha1'] = null
-    if (x['hsha2'] === '') x['hsha2'] = null
+    for(const p of this.USERSCOLSI) x[('$' + p)] = (mdUser as any)[p]
+    if (x['$hsha1'] === '') x['$hsha1'] = null
+    if (x['$hsha2'] === '') x['$hsha2'] = null
     stmt.run(x)
     return 0
   }
 
   mdUserId (args: any) : number {
-    let stmt = this.sql.prepare('SELECT * FROM ZZUSERS WHERE userId = @userId')
-    let row = stmt.get( {userId: args.userId} )
+    let stmt = this.sql.query('SELECT * FROM ZZUSERS WHERE userId = $userId')
+    let row = stmt.get( {$userId: args.userId} )
     if (!row) return 1
     if (row.hshK !== args.hshK) return 2
     return 0
@@ -430,71 +414,73 @@ export class SQLiteConnexion extends DBabstract {
 
   async mdUserSetAA (args: MDsetAA) : Promise<number> {
     const status = this.mdUserId(args); if (status) return status
-    let stmt = this.sql.prepare('SELECT userId FROM ZZUSERS WHERE hsha1 = @hsha1 OR hsha2 = @hsha1')
-    let row = stmt.get( {hsha1: args.hsha1} )
+    let stmt = this.sql.query('SELECT userId FROM ZZUSERS WHERE hsha1 = $hsha1 OR hsha2 = $hsha1')
+    let row = stmt.get( {$hsha1: args.hsha1} )
     if (row && row.userId !== args.userId) return 10
-    stmt = this.sql.prepare('SELECT userId FROM ZZUSERS WHERE hsha1 = @hsha2 OR hsha2 = @hsha2')
-    row = stmt.get( {hsha2: args.hsha2} )
+    stmt = this.sql.query('SELECT userId FROM ZZUSERS WHERE hsha1 = $hsha2 OR hsha2 = $hsha2')
+    row = stmt.get( {$hsha2: args.hsha2} )
     if (row && row.userId !== args.userId) return 11
 
-    stmt = this.sql.prepare('UPDATE ZZUSERS SET ssha1 = @ssha1, ssha2 = @ssha2 ' +
-      ' WHERE userId = @userId;')
-    if (args['hsha1'] === '') args['hsha1'] = null
-    if (args['hsha2'] === '') args['hsha2'] = null
-    stmt.run(args)
+    stmt = this.sql.query('UPDATE ZZUSERS SET ssha1 = $ssha1, ssha2 = $ssha2 ' +
+      ' WHERE userId = $userId;')
+    const x: any = {
+      $userId: args.userId, $hshK: args.hshK,
+      $hsha1: args.hsha1 || null,
+      $hsha2: args.hsha2 || null
+    }
+    stmt.run(x)
     return 0
   }
 
   async mdUserSetS (args: MDsetS) : Promise<number> {
     const status = this.mdUserId(args); if (status) return status
-    const stmt = this.sql.prepare('UPDATE ZZUSERS SET store = @store ' +
-      ' WHERE userId = @userId;')
-    stmt.run(args)
+    const stmt = this.sql.query('UPDATE ZZUSERS SET store = $store WHERE userId = $userId;')
+    stmt.run({ $store: args.store, $userId: args.userId})
     return 0
   }
 
   async mdUserDel (args: MDdel) : Promise<number> {
     const status = this.mdUserId(args); if (status) return status
-    const stmt = this.sql.prepare('DELETE FROM ZZUSERS WHERE userId = @userId;')
-    stmt.run(args)
+    const stmt = this.sql.query('DELETE FROM ZZUSERS WHERE userId = $userId;')
+    stmt.run({ $UserId : args.userId })
     return 0
   }
 
   override async mdEventNew (row: EventRow) : Promise<void> {
-    let stmt = this.sql.prepare('SELECT eventId FROM ZZEVENTS WHERE eventId = @eventId')
-    let r = stmt.get( { eventId: row.eventId } )
+    let stmt = this.sql.query('SELECT eventId FROM ZZEVENTS WHERE eventId = $eventId')
+    let r = stmt.get( { $eventId: row.eventId } )
     if (r) return
-    stmt = this.sql.prepare('INSERT INTO ZZEVENTS (eventId, userId, v, maxLife, data)' +
-      ' VALUES ( @eventId, @userId, @v, @maxLife, @data )')
-    stmt.run({ eventId: row.eventId, userId: row.userId, v: row.v, maxLife: row.maxLife, data: row.data })
+    stmt = this.sql.query('INSERT INTO ZZEVENTS (eventId, userId, v, maxLife, data)' +
+      ' VALUES ( $eventId, $userId, $v, $maxLife, $data )')
+    stmt.run({ $eventId: row.eventId, $userId: row.userId, $v: row.v, $maxLife: row.maxLife, $data: row.data })
   }
 
   override async mdEventGet (eventId: string ) : Promise<Uint8Array | null> {
-    let stmt = this.sql.prepare('SELECT data FROM ZZEVENTS WHERE eventId = @eventId')
-    let row = stmt.get( { eventId } )
+    let stmt = this.sql.query('SELECT data FROM ZZEVENTS WHERE eventId = $eventId')
+    let row = stmt.get( { $eventId: eventId } )
     return row ? row.data : null
   }
 
   override async mdEventSet (row: EventRow ) : Promise<void> {
-    const stmt = this.sql.prepare('UPDATE ZZEVENTS SET v = @v, maxLife = @maxLife, data = @data' +
-      ' WHERE eventId = @eventId')
-    stmt.run(row)
+    const stmt = this.sql.query('UPDATE ZZEVENTS SET v = $v, maxLife = $maxLife, data = $data' +
+      ' WHERE eventId = $eventId')
+    stmt.run({ $v: row.v, $maxLife: row.maxLife, $data: row.data, $eventId: row.eventId })
   }
 
   override async mdEventDel (eventId: string ) : Promise<void> {
-    let stmt = this.sql.prepare('DELETE FROM ZZEVENTS WHERE eventId = @eventId')
-    stmt.run( { eventId } )
+    let stmt = this.sql.query('DELETE FROM ZZEVENTS WHERE eventId = $eventId')
+    stmt.run( { $eventId: eventId } )
   }
 
   override async mdEventPurge (limit: number ) : Promise<void> {
-    let stmt = this.sql.prepare('DELETE FROM ZZEVENTS WHERE maxLife > 0 AND maxLife < @limit')
-    stmt.run( { limit } )
+    let stmt = this.sql.query('DELETE FROM ZZEVENTS WHERE maxLife > 0 AND maxLife < $limit')
+    stmt.run( { $limit: limit } )
   }
 
   override async mdEventList (userId: string) : Promise<Uint8Array[]> {
-    const stmt = this.sql.prepare('SELECT data FROM ZZEVENTS WHERE userId = @userId')
+    const stmt = this.sql.query('SELECT data FROM ZZEVENTS WHERE userId = $userId')
     const l: Uint8Array[] = []
-    const rows = stmt.all({ userId })
+    const rows = stmt.all({ $userId: userId })
     for(const r of rows) l.push(r.data)
     return l
   }
@@ -504,8 +490,8 @@ export class SQLiteConnexion extends DBabstract {
   ******************************************************************************/
 
   override async getBinSafe (userId: string) : Promise<Uint8Array | null> {
-    const stmt = this.sql.prepare('SELECT data FROM ZZSAFE WHERE userId = @userId')
-    const row = stmt.get({userId})
+    const stmt = this.sql.query('SELECT data FROM ZZSAFE WHERE userId = $userId')
+    const row = stmt.get({$userId: userId})
     if (!row) return null
     return Crypt.syncDecrypt(this.key, row.data)
   }
@@ -514,40 +500,41 @@ export class SQLiteConnexion extends DBabstract {
     const userId = safe.userId
     const llq = safe.auth.llq
     const data = Crypt.syncCrypt(this.key, encode(safe))
-    const stmt = this.sql.prepare('INSERT INTO ZZSAFE (userId, llq, data) VALUES (@userId, @llq, @data)')
-    stmt.run({ userId, llq, data })
+    const stmt = this.sql.query('INSERT INTO ZZSAFE (userId, llq, data) VALUES ($userId, $llq, $data)')
+    stmt.run({ $userId: userId, $llq: llq, $data: data })
   }
 
   override async updSafe (safe: Safe) :  Promise<void> {
     const userId = safe.userId
     const llq = safe.auth.llq
     const data = Crypt.syncCrypt(this.key, encode(safe))
-    const stmt = this.sql.prepare('UPDATE ZZSAFE SET llq = @llq, data = @data WHERE userId = @userId')
-    stmt.run({ userId, llq, data })
+    const stmt = this.sql.query('UPDATE ZZSAFE SET llq = $llq, data = $data WHERE userId = $userId')
+    stmt.run({ $userId: userId, $llq: llq, $data: data })
   }
 
   override async delSafe (userId: string) :  Promise<void> {
-    const stmt = this.sql.prepare('DELETE FROM ZZSAFE WHERE userId = @userId')
-    stmt.run({ userId })
+    const stmt = this.sql.query('DELETE FROM ZZSAFE WHERE userId = $userId')
+    stmt.run({ $userId: userId })
   }
 
   override async purgeSafes (llq: number) :  Promise<void> {
-    const stmt = this.sql.prepare('DELETE FROM ZZSAFE WHERE llq < @llq')
-    stmt.run({ llq })
+    const stmt = this.sql.query('DELETE FROM ZZSAFE WHERE llq < $llq')
+    stmt.run({ $llq: llq })
   }
 
   /******************************************************************************
   Lecture de la map des organisations
   ******************************************************************************/
   override async getSingleton (key: string) : Promise<string> {
-    const stmt = this.sql.prepare('SELECT value FROM SINGLETONS WHERE key = @key')
-    const res = stmt.get({key})
+    const stmt = this.sql.query('SELECT value FROM SINGLETONS WHERE key = $key')
+    const res = stmt.get({$key: key})
     return res ? res.value : ''
   }
 
   override async setSingleton (key: string, value: string) : Promise<void> {
-    const stmt = this.sql.prepare('INSERT INTO SINGLETONS (key, value) VALUES (@key, @value) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
-    stmt.run({key, value})
+    const stmt = this.sql.query('INSERT INTO SINGLETONS (key, value) VALUES ($key, $value) ' +
+      'ON CONFLICT (key) DO UPDATE SET value = excluded.value')
+    stmt.run({ $key: key, $value: value })
   }
 
   /******************************************************************************
@@ -565,19 +552,19 @@ export class SQLiteConnexion extends DBabstract {
     let hbc = ''
     this.sql.exec('BEGIN;')
 
-    let stmt = this.sql.prepare('SELECT hbc FROM ' + this.cluc(svc + '$HBC') + 
-    ' WHERE org = @org AND sessionId = @sessionId;')
-    const row = stmt.get({ org, sessionId })
+    let stmt = this.sql.query('SELECT hbc FROM ' + this.cluc(svc + '$HBC') + 
+    ' WHERE org = $org AND sessionId = $sessionId;')
+    const row = stmt.get({ $org: org, $sessionId: sessionId })
     if (row) {
       const i = row.hbc.indexOf(' ')
       const c = parseInt(row.hbc.substring(i + 1)) + 1
       hbc = row.hbc.substring(0, i + 1) + c
-      stmt = this.sql.prepare('UPDATE ' + this.cluc(svc + '$HBC') + 
-        ' SET hbc = @hbc WHERE org = @org AND sessionId = @sessionId;')
-      stmt.run({ org, sessionId, hbc })
+      stmt = this.sql.query('UPDATE ' + this.cluc(svc + '$HBC') + 
+        ' SET hbc = $hbc WHERE org = $org AND sessionId = $sessionId;')
+      stmt.run({ $org: org, $sessionId: sessionId, $hbc: hbc })
     }
 
-    this.sql.exec('COMMIT;')
+    this.sql.run('COMMIT;')
     return hbc
   }
 
@@ -609,9 +596,9 @@ export class SQLiteConnexion extends DBabstract {
   */
   override async getHeartBeatCount (svc: string, org: string, sessionId: string, hbcMode: number, now: number) 
   : Promise<string> {
-    let sql = 'SELECT hbc FROM ' + this.cluc(svc + '$HBC') + ' WHERE org = @org AND sessionId = @sessionId;'
-    let stmt = this.sql.prepare(sql)
-    const row = stmt.get({ org, sessionId })
+    let sql = 'SELECT hbc FROM ' + this.cluc(svc + '$HBC') + ' WHERE org = $org AND sessionId = $sessionId;'
+    let stmt = this.sql.query(sql)
+    const row = stmt.get({ $org: org, $sessionId: sessionId })
     if (!row && hbcMode !== 1) return ''
     let hbc: string = '', dh: string = '', c: number = 0
     if (row) {
@@ -627,27 +614,27 @@ export class SQLiteConnexion extends DBabstract {
       case 1 :
         hbc = '' + now + ' 1'
         if (row) {
-        stmt = this.sql.prepare('UPDATE ' + this.cluc(svc + '$HBC') + 
-          ' SET ttl = @ttl, hbc = @hbc WHERE org = @org AND sessionId = @sessionId;')
+        stmt = this.sql.query('UPDATE ' + this.cluc(svc + '$HBC') + 
+          ' SET ttl = $ttl, hbc = $hbc WHERE org = $org AND sessionId = $sessionId;')
         } else {
-          stmt = this.sql.prepare('INSERT INTO ' + this.cluc(svc + '$HBC') + 
-          ' (org, sessionId, ttl, hbc) VALUES ( @org, @sessionId, @ttl, @hbc);')
+          stmt = this.sql.query('INSERT INTO ' + this.cluc(svc + '$HBC') + 
+          ' (org, sessionId, ttl, hbc) VALUES ( $org, $sessionId, $ttl, $hbc);')
         }
-        stmt.run({ org, sessionId, ttl, hbc })
+        stmt.run({ $org: org, $sessionId: sessionId, $ttl: ttl, $hbc: hbc })
         break
 
       case 2 :
       case 4 :
         hbc = dh + (c + 1)
-        stmt = this.sql.prepare('UPDATE ' + this.cluc(svc + '$HBC') + 
-          ' SET ttl = @ttl, hbc = @hbc WHERE org = @org AND sessionId = @sessionId;')
-        stmt.run({ org, sessionId, ttl, hbc })
+        stmt = this.sql.query('UPDATE ' + this.cluc(svc + '$HBC') + 
+          ' SET ttl = $ttl, hbc = $hbc WHERE org = $org AND sessionId = $sessionId;')
+        stmt.run({ $org: org, $sessionId: sessionId, $ttl: ttl, $hbc: hbc })
         break
 
       case 3 :
-        stmt = this.sql.prepare('UPDATE ' + this.cluc(svc + '$HBC') + 
-          ' SET ttl = @ttl WHERE org = @org AND sessionId = @sessionId;')
-        stmt.run({ org, sessionId, ttl })
+        stmt = this.sql.query('UPDATE ' + this.cluc(svc + '$HBC') + 
+          ' SET ttl = $ttl WHERE org = $org AND sessionId = $sessionId;')
+        stmt.run({ $org: org, $sessionId: sessionId, $ttl: ttl })
         break
       }
     return hbc
@@ -686,8 +673,8 @@ export class SQLiteConnexion extends DBabstract {
   }
 
   override async  bug () : Promise<void> {
-    const stmt = this.sql.prepare('INSERT INTO BUG (key, value) VALUES (@key, @value)')
-    stmt.run({key: '1', value: '1'})
+    const stmt = this.sql.query('INSERT INTO BUG (key, value) VALUES ($key, $value)')
+    stmt.run({ $key: '1', $value: '1'})
   }
 
   /* Retourne un rowDB calculé depuis un row APP
@@ -698,22 +685,21 @@ export class SQLiteConnexion extends DBabstract {
       pour recherche instr de SQL
   */
   rowToDB (clazz: string, row: row, org: string) : rowDB {
-    // @ts-expect-error
-    let rdb: rowDB = { pk: row.pk, v: row.v, ttl: 0 }
-    if (org) rdb.org = org
+    let rdb: any = { $pk: row.pk, $v: row.v, $ttl: 0 }
+    if (org) rdb.$org = org
     if (!row.data) { // deleted
-      rdb.ttl = Math.floor(row.v / 60000) + zombiLapse, 0
+      rdb.$ttl = Math.floor(row.v / 60000) + zombiLapse, 0
     } else {
       const [lc, ll] = this.columns(clazz, true)
       lc.forEach(p => { 
-        if (!ll.has(p)) (rdb as any)[p] = (row as any)[p] })
+        if (!ll.has(p)) (rdb as any)['$' + p] = (row as any)[p] })
       ll.forEach(p => {
         const a = (row as any)[p] as string[]
-        (rdb as any)[p] = a && a.length ? ('$' + a.join('$')) : ''
+        (rdb as any)['$' + p] = a && a.length ? ('$' + a.join('$')) : ''
       })
       if (row.maxLife && (row.maxLife * 60000 > this.op.now))
-        rdb.ttl = row.maxLife
-      rdb.data = Crypt.syncCrypt(this.key, row.data)
+        rdb.$ttl = row.maxLife
+      rdb.$data = Crypt.syncCrypt(this.key, row.data)
     }
     return rdb
   }
@@ -732,8 +718,7 @@ export class SQLiteConnexion extends DBabstract {
     data: Uint8Array, // null si DELETED
   */
   rowToAPP (clazz: string, rdb: rowDB, org: string) : row{
-    // @ts-expect-error
-    const row: row = { pk: rdb.pk, v: rdb.v }
+    const row: row = { pk: rdb.pk, v: rdb.v, data: null }
     if (org) row._org = org
     if (!rdb.data || (rdb.ttl && (rdb.ttl * 60000 < this.op.now))) {
       row.deleted = true
@@ -757,9 +742,9 @@ export class SQLiteConnexion extends DBabstract {
     if (!mark) mark = '1'
     const rows: row[] = []
     const ttl = Math.floor(this.op.now / 60000)
-    const stmt = this.sql.prepare('SELECT * FROM ' + this.cluc(clazz) +
-     ' WHERE ' + (adm ? '' : 'org = @org AND ') + ' pk > @mark AND ttl > @ttl ORDER BY pk DESC LIMIT @limit;')
-    const docs = stmt.all({ org: this.org, mark, ttl, limit }) as row[]
+    const stmt = this.sql.query('SELECT * FROM ' + this.cluc(clazz) +
+     ' WHERE ' + (adm ? '' : 'org = $org AND ') + ' pk > $mark AND ttl > $ttl ORDER BY pk DESC LIMIT $limit;')
+    const docs = stmt.all({ $org: this.org, $mark: mark, $ttl: ttl, $limit: limit }) as row[]
     for (let doc of docs) {
       n++
       lastMark = doc.pk
@@ -773,8 +758,8 @@ export class SQLiteConnexion extends DBabstract {
   En SQL la purge est sans limite.
   */
   override async purgeRows (clazz: string, limit: number) : Promise<boolean> {
-    const stmt = this.sql.prepare('DELETE FROM ' + this.cluc(clazz) + ' WHERE org = @org;')
-    stmt.run({ org: this.org })
+    const stmt = this.sql.query('DELETE FROM ' + this.cluc(clazz) + ' WHERE org = $org;')
+    stmt.run({ $org: this.org })
     return false
   }
 
@@ -785,8 +770,8 @@ export class SQLiteConnexion extends DBabstract {
   insRow (clazz: string, row: row) : void {
     const adm = clazz.startsWith('ADMIN$')
     const [lc, ] = this.columns(clazz)
-    const lx: string[] = []; lc.forEach(c => { lx.push('@' + c)})
-    const stmt = this.sql.prepare('INSERT INTO ' + this.cluc(clazz) + 
+    const lx: string[] = []; lc.forEach(c => { lx.push('$' + c)})
+    const stmt = this.sql.query('INSERT INTO ' + this.cluc(clazz) + 
       ' (' + (Array.from(lc).join(', ')) + ') VALUES (' + lx.join(', ') + ');')
     const r = this.rowToDB(clazz, row, adm ? '' : (this.org || ''))
     stmt.run(r)
@@ -797,15 +782,15 @@ export class SQLiteConnexion extends DBabstract {
     if (row.data) { // c'est une vraie maj
       const [lc, ] = this.columns(clazz)
       const lx: string[] = []; lc.forEach(c => { 
-        if (c !== 'org' && c !== 'pk') lx.push(c + ' = @' + c)})
-      const stmt = this.sql.prepare('UPDATE ' + this.cluc(clazz) + ' SET ' +
-        lx.join(', ') + ' WHERE ' + (adm ? '' : 'org = @org AND ') + ' pk = @pk;')
+        if (c !== 'org' && c !== 'pk') lx.push(c + ' = $' + c)})
+      const stmt = this.sql.query('UPDATE ' + this.cluc(clazz) + ' SET ' +
+        lx.join(', ') + ' WHERE ' + (adm ? '' : 'org = $org AND ') + ' pk = $pk;')
       const r = this.rowToDB(clazz, row, adm ? '' : (this.org || ''))
       stmt.run(r)
     } else { // c'est une suppression (logique)
       const r = this.rowToDB(clazz, row, adm ? '' : (this.org || ''))
-      const stmt = this.sql.prepare('UPDATE ' + this.cluc(clazz) + 
-        ' SET v = @v, ttl = @ttl, data = NULL WHERE ' + (adm ? '' : 'org = @org AND ') + ' pk = @pk;')
+      const stmt = this.sql.query('UPDATE ' + this.cluc(clazz) + 
+        ' SET v = $v, ttl = $ttl, data = NULL WHERE ' + (adm ? '' : 'org = $org AND ') + ' pk = $pk;')
       stmt.run(r)
     }
   }
@@ -813,11 +798,11 @@ export class SQLiteConnexion extends DBabstract {
   setRow (clazz: string, row: row) : void {
     const adm = clazz.startsWith('ADMIN$')
     const [lc, ] = this.columns(clazz)
-    const lx: string[] = []; lc.forEach(c => { lx.push('@' + c)})
+    const lx: string[] = []; lc.forEach(c => { lx.push('$' + c)})
     const ly: string[] = []; lc.forEach(c => { 
       if (c !== 'pk' && c !== 'org') ly.push(c + ' = excluded.' + c)
     })
-    const stmt = this.sql.prepare('INSERT INTO ' + this.cluc(clazz) + 
+    const stmt = this.sql.query('INSERT INTO ' + this.cluc(clazz) + 
       ' (' + (Array.from(lc).join(', ')) + ') VALUES (' + lx.join(', ') + ')' +
       ' ON CONFLICT (org, pk) DO UPDATE SET ' + ly.join(', ') + ';')
     const r = this.rowToDB(clazz, row, adm ? '' : (this.org || ''))
@@ -826,10 +811,10 @@ export class SQLiteConnexion extends DBabstract {
 
   /* delRow (clazz: string, row: row) : Promise<void> {
     const adm = clazz.startsWith('ADMIN$')
-    const stmt = this.sql.prepare('DELETE FROM ' + this.cluc(clazz) + 
-    ' WHERE ' + (adm ? '' :  'org = @org AND ') + ' pk = @pk;')
-    const obj = { pk: row.pk }
-    if (!adm) obj.org = this.org
+    const stmt = this.sql.query('DELETE FROM ' + this.cluc(clazz) + 
+    ' WHERE ' + (adm ? '' :  'org = $org AND ') + ' pk = $pk;')
+    const obj = { $pk: row.pk }
+    if (!adm) obj.$org = this.org
     stmt.run(obj)
   }
   */
@@ -842,9 +827,9 @@ export class SQLiteConnexion extends DBabstract {
     if (!mark) mark = '1'
     const rows: rowQ[] = []
     const ttl = Math.floor(this.op.now / 60000)
-    const stmt = this.sql.prepare('SELECT * FROM ' + this.cluc(clazz, colName) +
-      ' WHERE ' + (adm ? '' :  'org = @org AND ') + ' pk > @mark AND ttl > @ttl ORDER BY pk DESC LIMIT @limit;')
-    const docs = stmt.all({ org: this.org, mark, ttl, limit }) as rowQ[]
+    const stmt = this.sql.query('SELECT * FROM ' + this.cluc(clazz, colName) +
+      ' WHERE ' + (adm ? '' :  'org = $org AND ') + ' pk > $mark AND ttl > $ttl ORDER BY pk DESC LIMIT $limit;')
+    const docs = stmt.all({ $org: this.org, $mark: mark, $ttl: ttl, $limit: limit }) as rowQ[]
     for (let doc of docs) {
       n++
       lastMark = doc.pk || ''
@@ -855,8 +840,8 @@ export class SQLiteConnexion extends DBabstract {
 
   /* En SQL on ignore limit : tous les rows sont purgés en un statement */
   override async purgeRowsQ (clazz: string, colName: string, limit: number) : Promise<boolean> {
-    const stmt = this.sql.prepare('DELETE FROM ' + this.cluc(clazz, colName) + ' WHERE org = @org ;')
-    stmt.run({ org: this.org })
+    const stmt = this.sql.query('DELETE FROM ' + this.cluc(clazz, colName) + ' WHERE org = $org ;')
+    stmt.run({ $org: this.org })
     return false
   }
 
@@ -875,21 +860,21 @@ export class SQLiteConnexion extends DBabstract {
 
   override deleteRow (clazz: string, pk: string) : void {
     const adm = clazz.startsWith('ADMIN$')
-    const stmt = this.sql.prepare('DELETE FROM ' + this.cluc(clazz) +
-     ' WHERE ' + (adm ? '' :  'org = @org AND ') + ' pk = @pk;')
-    stmt.run({ org: this.org, pk })
+    const stmt = this.sql.query('DELETE FROM ' + this.cluc(clazz) +
+     ' WHERE ' + (adm ? '' :  'org = $org AND ') + ' pk = $pk;')
+    stmt.run({ $org: this.org, $pk: pk })
   }
 
   override writeRowQ (clazz: string, colName: string, pk: string, v: number, col: string) : void {
     const sql = 'INSERT INTO ' + this.cluc(clazz, colName) +
-      ' (org, pk, v, col, ttl) VALUES (@org, @pk, @v, @col, @ttl)' +
+      ' (org, pk, v, col, ttl) VALUES ($org, $pk, $v, $col, $ttl)' +
       ' ON CONFLICT (org, pk) DO UPDATE SET ' +
       'v = excluded.v, col = excluded.col, ttl = excluded.ttl;'
-    const stmt = this.sql.prepare(sql)
+    const stmt = this.sql.query(sql)
     const x = { 
-      pk, v, col, 
-      org: this.org,
-      ttl: Math.floor(v / 60000) + Math.floor(zombiLapse / 60)
+      $pk: pk, $v: v, $col: col, 
+      $org: this.org,
+      $ttl: Math.floor(v / 60000) + Math.floor(zombiLapse / 60)
     }
     stmt.run(x)
   }
@@ -913,9 +898,9 @@ export class SQLiteConnexion extends DBabstract {
   override async allRowsData (clazz: string, v: number) : Promise<$CollData> {
     const adm = clazz.startsWith('ADMIN$')
     const incr = v !== 0
-    const stmt = this.sql.prepare('SELECT * FROM ' + this.cluc(clazz) +
-      ' WHERE ' + (adm ? '' : 'org = @org ') + (!incr ? ';' : ' AND v > @v ;'))
-    const docs = stmt.all({org: this.org, v : v || 0})
+    const stmt = this.sql.query('SELECT * FROM ' + this.cluc(clazz) +
+      ' WHERE ' + (adm ? '' : 'org = $org ') + (!incr ? ';' : ' AND v > $v ;'))
+    const docs = stmt.all({ $org: this.org, $v : v || 0 })
     if (docs.length === 0) return { incr, v: 0 }
 
     const cd: $CollData = { incr, v: 0, datas: [], deleted: [] }
@@ -938,9 +923,10 @@ export class SQLiteConnexion extends DBabstract {
   */
   override async oneRow (clazz: string, pk: string, v: number) : Promise<row | null> {
     const adm = clazz.startsWith('ADMIN$')
-    const w = ' WHERE ' + (adm ? '' : 'org = @org AND ') + 'pk = @pk' + (!v ? ';' : ' AND v > @v ;')
-    const stmt = this.sql.prepare('SELECT * FROM ' + this.cluc(clazz) + w)
-    const doc = stmt.get({org: this.org, v : v || 0, pk }) as rowDB
+    const w = ' WHERE ' + (adm ? '' : 'org = $org AND ') + 'pk = $pk' + (!v ? ';' : ' AND v > $v ;')
+    const stmt = this.sql.query('SELECT * FROM ' + this.cluc(clazz) + w)
+    // console.log(stmt.toString())
+    const doc = stmt.get({ $org: this.org, $v: v || 0, $pk: pk }) as rowDB
     if (!doc) return null
     if (!doc.data || (doc.ttl && (doc.ttl * 60000 < this.op.now)))
       this.deleteRow(clazz, pk)
@@ -950,9 +936,9 @@ export class SQLiteConnexion extends DBabstract {
 
   override async oneRowByAlias (clazz: string, alias: string, value: string) : Promise<row | null> {
     const adm = clazz.startsWith('ADMIN$')
-    const stmt = this.sql.prepare('SELECT * FROM ' + this.cluc(clazz) +
-      ' WHERE ' + (adm ? '' :  'org = @org AND ') + alias + '= @value')
-    const doc = stmt.get({org: this.org, value: value })
+    const stmt = this.sql.query('SELECT * FROM ' + this.cluc(clazz) +
+      ' WHERE ' + (adm ? '' :  'org = $org AND ') + alias + '= $value')
+    const doc = stmt.get({ $org: this.org, $value: value })
     if (!doc) return null
     if (!doc.data || (doc.ttl && (doc.ttl * 60000 < this.op.now)))
       this.deleteRow(clazz, doc.pk)
@@ -990,11 +976,11 @@ export class SQLiteConnexion extends DBabstract {
     const incr = vs > 0
     const cd: $CollData = { incr, v: 0, datas: [], moved: [], deleted: [] }
     
-    let stmt = this.sql.prepare('SELECT * FROM ' + this.cluc(clazz) +
-      ' WHERE ' + (adm ? '' :  'org = @org AND ') +
-      (isList ? ('instr(' + colName + ', @col) > 0') : (colName + ' = @col') ) +
-      (!incr ? ';' : ' AND v > @vs ;'))
-    const docs = stmt.all({org: this.org, vs : vs || 0, val })
+    let stmt = this.sql.query('SELECT * FROM ' + this.cluc(clazz) +
+      ' WHERE ' + (adm ? '' :  'org = $org AND ') +
+      (isList ? ('instr(' + colName + ', @col) > 0') : (colName + ' = $col') ) +
+      (!incr ? ';' : ' AND v > $vs ;'))
+    const docs = stmt.all({ $org: this.org, $vs: vs || 0, $val: val })
 
     if (docs.length === 0 && !incr) return { incr, v: 0 }
     
@@ -1008,10 +994,10 @@ export class SQLiteConnexion extends DBabstract {
 
     // INCREMENTAL : recherche des moved
     const ttl = Math.round(this.op.now / 60000)
-    stmt = this.sql.prepare('SELECT pk, v FROM ' + this.cluc(clazz, colName) +
-      ' WHERE ' + (adm ? '' :  'org = @org AND ') + ' col = @col AND v > @vs AND ttl > @ttl;')
+    stmt = this.sql.query('SELECT pk, v FROM ' + this.cluc(clazz, colName) +
+      ' WHERE ' + (adm ? '' :  'org = $org AND ') + ' col = $col AND v > $vs AND ttl > $ttl;')
     // rowq des supprimés et/ou retirés de la collection 
-    const rowqs = stmt.all({org: this.org, vs, val, ttl })
+    const rowqs = stmt.all({ $org: this.org, $vs: vs, $val: val, $ttl: ttl })
     // Pour ne garder par Article quitté que le départ le plus récent
     // un article pourrait avoir été "Zola" puis plus "Zola" puis à nouveau "Zola" puis plus "Zola" ...
     const m: Map<string, number> = new Map()
@@ -1054,7 +1040,7 @@ export class SQLiteConnexion extends DBabstract {
         (x.length === 1 ? x[0] : ' ( (' + x.join(') OR (') + ') ) ')
         : ''
     }
-    return colName + ' ' + comp + ' @col'
+    return colName + ' ' + comp + ' $col'
   }
   
   orderBy (order: string) {
@@ -1065,13 +1051,13 @@ export class SQLiteConnexion extends DBabstract {
   override async selectDocs(clazz: string, colName: string, filter: filter, col: any, 
     order: string, limit: number, fn: Function) : Promise<void> {
     const adm = clazz.startsWith('ADMIN$')
-    const w1 = adm ? ' WHERE ' : ' WHERE org = @org AND '
+    const w1 = adm ? ' WHERE ' : ' WHERE org = $org AND '
     const x = 'SELECT * FROM ' + this.cluc(clazz)
       + w1 + this.compOp(colName, filter, col)
       + (order ? this.orderBy(order) : '')
       + (limit ? ' LIMIT ' + limit : '') + ';'
-    const stmt = this.sql.prepare(x)
-    const docs = stmt.all({org: this.org, col })
+    const stmt = this.sql.query(x)
+    const docs = stmt.all({ $org: this.org, $col: col })
     for (let doc of docs) {
       const row = this.rowToAPP(clazz, doc as rowDB, adm ? '' : (this.org || ''))
       if (!row.deleted) await fn(row.data)
@@ -1082,11 +1068,11 @@ export class SQLiteConnexion extends DBabstract {
     order: string, limit: number, fn: Function)  : Promise<void> {
     const adm = clazz.startsWith('ADMIN$')
     const comp = opFilter[filter]
-    const stmt = this.sql.prepare('SELECT * FROM ' + this.cluc(clazz)
+    const stmt = this.sql.query('SELECT * FROM ' + this.cluc(clazz)
       + ' WHERE ' + this.compOp(colName, filter, col)
       + this.orderBy(order)
       + (limit ? ' LIMIT ' + limit : '') + ';')
-    const docs = stmt.all({org: this.org, col })
+    const docs = stmt.all({ $org: this.org, $col: col })
     for (let doc of docs) {
       const row = this.rowToAPP(clazz, doc as rowDB, adm ? '' : (this.org || ''))
       if (!row.deleted) fn(doc.org, row)

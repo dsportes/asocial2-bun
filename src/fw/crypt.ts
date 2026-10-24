@@ -213,14 +213,16 @@ export class Crypt {
   static signToAsn1 (sign: Uint8Array) : Uint8Array {
     const x1 = u8ToHex(sign)
     // const x2 = rsa.KJUR.crypto.ECDSA.concatSigToASN1Sig(x1)
-    const x2 = (KJUR.crypto.ECDSA as any)['concatSigToASN1Sig'](x1)
+    // @ts-expect-error
+    const x2 = KJUR.crypto.ECDSA.concatSigToASN1Sig(x1)
     return new Uint8Array(hexToArrayBuffer(x2))
   }
 
   static signFromAsn1 (sign: Uint8Array) : Uint8Array {
     const x1 = u8ToHex(sign)
     // const x2 = rsa.KJUR.crypto.ECDSA.asn1SigToConcatSig(x1)
-    const x2 = (KJUR.crypto.ECDSA as any)['asn1SigToConcatSi'](x1)
+    // @ts-expect-error
+    const x2 = KJUR.crypto.ECDSA.asn1SigToConcatSig(x1)
     return new Uint8Array(hexToArrayBuffer(x2))
   }
 

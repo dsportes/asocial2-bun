@@ -34,7 +34,7 @@ export const setup = () => {
 
   config.databases.set('masterDB', new AppSQLiteConnector(config.keys['sqlite_z'], config.keys['sites']['A']))
   config.databases.set('safeDB', new AppSQLiteConnector(config.keys['sqlite_z'], config.keys['sites']['A']))
-  config.databases.set('svcDB', new AppSQLiteConnector(config.keys['sqlite_z'], config.keys['sites']['A']))
+  config.databases.set('svcDB', new AppSQLiteConnector(config.keys['sqlite_a'], config.keys['sites']['A']))
 
   /* DB spécifiques par organisation
   const sqlb = new AppSQLiteConnector(config.keys['sqlite_b'], config.keys['sites']['A'])

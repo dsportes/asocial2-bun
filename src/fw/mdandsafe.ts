@@ -20,7 +20,7 @@ export class MDandSafe {
     return now
   }
 
-  static headers: {
+  static headers = {
     'Content-Type': 'application/octet-stream',  // sent request
     'Accept':       'application/octet-stream'   // expected data sent back
   }

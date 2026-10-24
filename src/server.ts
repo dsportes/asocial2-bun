@@ -103,7 +103,7 @@ const ExcDecode = (src: number) : Response => {
 }
 
 const ExcOp = (exc: any, opName: string, src: number) : Response => {
-  if (config.debugLevel === 2)
+  if (config.debugLevel >= 2)
     Log.info(opName + ' terminated on exception')
   // 400: AppExc
   // 401: AppExc inattendue
