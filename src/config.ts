@@ -3,9 +3,9 @@ import Log from './fw/log'
 import type { BaseConfig } from './fw/types'
 import { DbConnector, STabstract } from './fw/base'
 
+const PROD = false // process.env.NODE_ENV === 'production' ???
 const admin1 = 'VpOZWh0Zeh20Tk5C1BNi'
 const admin2 = 'Q8v99KlnO04zV41Z1MVx'
-const PROD = process.env.NODE_ENV === 'production'
 
 /* Possibilité d'attacher un log "Google-cloud" au log générique Winston */
 // import { LoggingWinston } from '@google-cloud/logging-winston'
