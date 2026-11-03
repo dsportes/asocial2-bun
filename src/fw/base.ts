@@ -5,6 +5,8 @@ import adminAlert from './adminAlert'
 import Log from './log'
 import type { AbstractOperation } from './types'
 
+export type StartEnd = { start: number, end: number, err?: number }
+
 /* Classe AppExc ********************************************************/
 export class AppExc {
   /* codes:

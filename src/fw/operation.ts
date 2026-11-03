@@ -5,7 +5,7 @@ import type { OperationWC } from './types'
 import { MDandSafe } from './mdandsafe'
 import config from '../config'
 import Log from './log'
-import { AppExc, DbConnector, STabstract } from './base'
+import { AppExc, type StartEnd, DbConnector, STabstract } from './base'
 import { DBabstract, cloneRow } from './DBabstract'
 import type { row, srvStatus } from './DBabstract'
 import { updType } from './DBabstract'
@@ -474,9 +474,9 @@ export class AuthRecord {
     }
     if (!checkSusp) return cr
     if (!cr.isSuspended) return cr
-    const su = cr.cred.props.susp
-    const s = su[0] ? new Date(su[0] * 60000).toISOString() : '2000-01-01 00:00:00'
-    const e = su[1] ? new Date(su[1] * 60000).toISOString() : '2099-31-12 23:59:59'
+    const su = cr.cred.props.susp as StartEnd
+    const s = su.start ? new Date(su.start * 60000).toISOString() : '2000-01-01 00:00:00'
+    const e = su.end ? new Date(su.end * 60000).toISOString() : '2099-31-12 23:59:59'
     throw new AppExc(103, 'suspended_credential', this.op, 
       [this.op.opName, this.op.args.svc || '?', this.op.args.org || '?', docCl, docPk, s, e])
   }
