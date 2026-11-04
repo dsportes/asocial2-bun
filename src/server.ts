@@ -2,17 +2,17 @@
 // import { exit } from 'process'
 import { encode, decode } from '@msgpack/msgpack'
 
-import Log from './fw/log'
+import Log from './src-fw/log'
 import config from './config'
 import { setup } from './setup'
-import { AppExc, STabstract } from './fw/base'
-import { MDOperation } from './fw/masterdir'
-import { SafeOperation } from './fw/safeop'
-import { Util } from './fw/util'
-import { keyFromB64 } from './fw/b64'
-import { Crypt } from './fw/crypt'
-import { Registry } from './fw/registry'
-import { Operation } from './fw/operation'
+import { AppExc, STabstract } from './src-fw/base'
+import { MDOperation } from './src-fw/masterdir'
+import { SafeOperation } from './src-fw/safeop'
+import { Util } from './src-fw/util'
+import { keyFromB64 } from './src-fw/b64'
+import { Crypt } from './src-fw/crypt'
+import { Registry } from './src-fw/registry'
+import { Operation } from './src-fw/operation'
 
 setup()
 

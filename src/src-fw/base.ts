@@ -7,6 +7,8 @@ import type { AbstractOperation } from './types'
 
 export type StartEnd = { start: number, end: number, err?: number }
 
+export type CodeLabel = [string, string]
+
 /* Classe AppExc ********************************************************/
 export class AppExc {
   /* codes:

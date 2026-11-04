@@ -1,6 +1,6 @@
 import config from '../config.ts'
-import Log from './log'
-import type { AbstractOperation } from './types'
+import Log from './log.ts'
+import type { AbstractOperation } from './types.ts'
 
 export default function adminAlert ( op: AbstractOperation, subject: string, text: string) {
   const org = op && op['org'] ? op['org'] : ''

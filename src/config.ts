@@ -1,7 +1,7 @@
 import keys from './keys.jsonc'
-import Log from './fw/log'
-import type { BaseConfig } from './fw/types'
-import { DbConnector, STabstract } from './fw/base'
+import Log from './src-fw/log'
+import type { BaseConfig } from './src-fw/types'
+import { DbConnector, STabstract } from './src-fw/base'
 
 const PROD = false // process.env.NODE_ENV === 'production' ???
 const admin1 = 'VpOZWh0Zeh20Tk5C1BNi'

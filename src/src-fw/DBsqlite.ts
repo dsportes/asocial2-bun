@@ -1,14 +1,14 @@
 import { Database } from 'bun:sqlite'
 import { encode } from '@msgpack/msgpack'
 
-import Log from '../fw/log'
+import Log from './log'
 import { AppExc, DbConnector } from './base'
 import { DBabstract, zombiLapse } from './DBabstract'
 import { MDopn, updType } from './DBabstract'
 import type { filter, expList, expListQ, 
   row, rowDB, rowQ, $CollData, Safe,
   MDuser, MDsetAA, MDsetS, MDdel, EventRow } from './DBabstract'
-import type { AbstractOperation, OperationWC } from '../fw/types'
+import type { AbstractOperation, OperationWC } from './types'
 import { DocDescriptor, propType } from './docDescriptor'
 import { Crypt } from './crypt'
 

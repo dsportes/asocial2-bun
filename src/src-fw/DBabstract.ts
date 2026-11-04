@@ -1,6 +1,6 @@
 
-import { DbConnector, DbConnexion } from '../fw/base'
-import type { AbstractOperation } from '../fw/types'
+import { DbConnector, DbConnexion } from './base'
+import type { AbstractOperation } from './types'
 
 /* Interface des services d'accès génériques à la DB */
 

@@ -1,6 +1,6 @@
 import { encode, decode } from '@msgpack/msgpack'
 
-import Log from '../fw/log'
+import Log from './log'
 import { AppExc } from './base'
 import type { AbstractOperation } from './types'
 import { Crypt } from './crypt'

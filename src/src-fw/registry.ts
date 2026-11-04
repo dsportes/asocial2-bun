@@ -1,5 +1,45 @@
 import { AppExc, $ADocument } from './base'
+import { Descriptor } from './descriptor'
 import { DocDescriptor } from './docDescriptor'
+
+interface Described {
+  get _descriptor () : Descriptor 
+}
+
+class FakeDoc implements Described {
+  descriptor : Descriptor
+  get _descriptor () : Descriptor { return this.descriptor }
+  constructor (d: Descriptor) {
+    this.descriptor = d
+  }
+}
+
+export class ClassInfo {
+  readonly svc: string
+  readonly docCl: string
+  readonly subCl: string
+  readonly descriptor: Descriptor
+  readonly clazz: Function | FakeDoc 
+
+  constructor (svc: string, docCl: string, subCl: string, descriptor: Descriptor, 
+    clazz: Function | FakeDoc) {
+    this.svc = svc; this.docCl = docCl; this.subCl = subCl; this.descriptor = descriptor; 
+    this.clazz = clazz
+  }
+
+  newD () : $ADocument {
+    if (this.descriptor.virtual)
+      throw new AppExc(3, 'document_not_instantiable', 'Registry.getClassInfo(5)', [this.fullName])
+    const f = this.clazz
+    // @ts-expect-error
+    return new f() as $ADocument
+  }
+
+  pkValue (src?: any, nohash?: boolean) : string{ return this.pkValue(src, nohash)}
+
+  get fullName () { return this.svc + '/' + this.docCl + (this.subCl ? ('/' + this.subCl) : '')}
+
+}
 
 export const subCl = (clazz: string) => {
   const i = clazz.indexOf('_')
@@ -25,8 +65,19 @@ export const svcCl = (clazz: string) => {
 }
 
 export class Registry {
+  // Map des classes enregistrées par svc / docCl / subCl
+  static constructors: Map<string, Function | FakeDoc> = new Map()
+
+  // Set des classes s'étant déclarées "manager"
+  static managers : Set<Function> = new Set()
+
+  static registerEnum (descriptor: Descriptor) {
+    const fd = new FakeDoc(descriptor)
+    const fullName = descriptor.svc + '/' + descriptor.docCl
+    Registry.constructors.set(fullName, fd)
+  }
+
   static classes : Map<string, Function> = new Map()
-  static managers : Set<string> = new Set()
 
   static managersOfSvc (svc: string) : Set<string> {
     const s: Set<string> = new Set()

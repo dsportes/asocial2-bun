@@ -1,17 +1,28 @@
 import { encode, decode } from '@msgpack/msgpack'
 
-import { $Document } from '../fw/document'
-import { $Form, ADMIN$Status, $Credential, $Subs, $CredChecker } from '../fw/documents'
-import Log from '../fw/log'
-import { Registry } from '../fw/registry'
-import { Operation } from '../fw/operation'
-import { filter } from '../fw/DBabstract'
+import { $Document } from '../src-fw/document'
+import { $Form, ADMIN$Status, $Credential, $Subs, $CredChecker } from '../src-fw/documents'
+import Log from '../src-fw/log'
+import { Registry } from '../src-fw/registry'
+import { AppExc } from '../src-fw/base'
+import { Operation } from '../src-fw/operation'
+import { filter } from '../src-fw/DBabstract'
+import { FormType } from '../src-fw/descriptor'
 
 let nd = 0
 
 export function loadingDA () {
   Log.info('app operations loading: ' + nd)
 }
+
+let n = 0, nf = 0, exc: AppExc | undefined
+
+if (!exc) { nf++; exc = FormType.register('AS2', 'membrecodir', 'AS2_ad', 'k1', ['A']) }
+if (!exc) { nf++; exc = FormType.register('AS2', 'membreredaction', 'AS2_ad', 'k1', ['A']) }
+if (!exc) { nf++; exc = FormType.register('AS2', 'auteur', 'AS2_auteurs', 'k2', ['Redaction/1']) }
+// Un Auteur peut aussi nommer un co-auteur
+if (!exc) { nf++; exc = FormType.register('AS2', 'coauteur', 'AS2_auteurs', 'k2', ['Redaction/1', 'Auteur/$1']) }
+
 
 /*
 new FormType('membrecodir', 'k1', ['A'])

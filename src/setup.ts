@@ -16,18 +16,18 @@ Si web-push peut être importé, sa configuration est fixée
 import { exit } from 'process'
 // import webpush from 'web-push'
 import config from './config.ts'
-import Log from './fw/log.ts'
+import Log from './src-fw/log.ts'
 import { AppSQLiteConnector } from './app/AppDBsqlite.ts'
-import { FilesystemStorage } from './fw/STfilesystem.ts'
+import { FilesystemStorage } from './src-fw/STfilesystem.ts'
 
-import { schemaExcFW } from './fw/schema.ts'
+import { schemaExcFW } from './src-fw/schema.ts'
 import { schemaExcAS2 } from './as2/schema.ts'
 
-import { loadingDF } from './fw/documents'
+import { loadingDF } from './src-fw/documents.ts'
 import { loadingDA } from './as2/documents'
-import { loadingOF } from './fw/operations'
+import { loadingOF } from './src-fw/operations.ts'
 import { loadingOA } from './app/operations'
-import { loadingOS } from './fw/safeop'
+import { loadingOS } from './src-fw/safeop.ts'
 
 export const setup = () => {
   config.dbConnectorClasses.sqlite = AppSQLiteConnector

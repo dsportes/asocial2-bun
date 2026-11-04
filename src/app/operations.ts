@@ -1,13 +1,13 @@
 import { decode } from '@msgpack/msgpack'
 
-import { Operation } from '../fw/operation'
-import { Registry, topCl } from '../fw/registry'
-import { $Credential } from '../fw/documents'
-import Log from '../fw/log'
-import { DocStatus } from '../fw/document'
-import { DocDescriptor } from '../fw/docDescriptor'
+import { Operation } from '../src-fw/operation'
+import { Registry, topCl } from '../src-fw/registry'
+import { $Credential } from '../src-fw/documents'
+import Log from '../src-fw/log'
+import { DocStatus } from '../src-fw/document'
+import { DocDescriptor } from '../src-fw/docDescriptor'
 import { AS2$Auteur } from '../as2/documents'
-import { filter } from '../fw/DBabstract'
+import { filter } from '../src-fw/DBabstract'
 
 export function loadingOA () {
   Log.info('app operations loading: ' + Registry.sizeOp())

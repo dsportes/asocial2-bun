@@ -2,8 +2,8 @@
 
 // import Log from '../fw/log'
 // import { AppExc } from '../fw/base'
-import type { AbstractOperation } from '../fw/types'
-import { SQLiteConnexion, SQLiteConnector } from '../fw/DBsqlite'
+import type { AbstractOperation } from '../src-fw/types'
+import { SQLiteConnexion, SQLiteConnector } from '../src-fw/DBsqlite'
 
 export class AppSQLiteConnector extends SQLiteConnector {
   static override async genSchema () { await SQLiteConnector.genSchema() }
