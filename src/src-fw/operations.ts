@@ -4,7 +4,7 @@ import { Operation, Cache } from './operation'
 import type { MDEventS } from './masterdir'
 import { AppExc } from './base'
 import { MDandSafe } from './mdandsafe'
-import { Registry, topCl } from './registry'
+import { Registry } from './registry'
 import { DocDescriptor } from './docDescriptor'
 import { ADMIN$Status, $Subs,  $Credential, 
   $Form, $CredTempl, $CredChecker } from './documents'
@@ -48,13 +48,9 @@ class ADMIN$getStatus extends Operation {
     this._svc = this.stringValue('svc', true)
   }
   override async phase2 () {
-    const dd = await Cache.getRow(this, 'ADMIN$Status', { svc: this._svc}, config.STATUSLAZYNESS)
-    if (!dd) this.setRes('status', { st: 0, at: 0, txt: '' })
-    else {
-      dd.init()
-      const s = dd.getDoc() as ADMIN$Status // s.st: 1 2 ou 9
-      this.setRes('status', { st: s.st, at: s.at, txt: s.txt})
-    }
+    const doc = await this.cache.getDoc('ADMIN$Status', { svc: this._svc }) as ADMIN$Status | undefined
+    if (!doc) this.setRes('status', { st: 0, at: 0, txt: '' })
+    else this.setRes('status', { st: doc.st, at: doc.at, txt: doc.txt})
   }
 }
 Registry.registerOp(ADMIN$getStatus)
@@ -75,9 +71,9 @@ class ADMIN$setStatus extends Operation {
   }
   override async phase2 () {
     this.requireAdmin()
-    let doc: ADMIN$Status = await this.cache.getDoc('ADMIN$Status', { svc: this._svc }) as ADMIN$Status
+    let doc = await this.cache.getDoc('ADMIN$Status', { svc: this._svc }) as ADMIN$Status | undefined
     if (doc) doc._status = DocStatus.UPD
-    else doc = this.cache.newDoc('ADMIN$Status', { svc: this._svc }) as ADMIN$Status
+    else doc = await this.cache.putDoc('ADMIN$Status', { svc: this._svc }, true) as ADMIN$Status
     doc.at = Date.now()
     doc.st = this._st
     doc.txt = this._txt || ''
@@ -103,25 +99,21 @@ class ADMIN$getAllStatus extends Operation {
     for(const svc of Object.keys(this._status)) {
       if (svc === '$ST$') continue
       const obj = this._status[svc]
-      const ci = await Cache.getRow(this, 'ADMIN$Status', { svc: svc}, config.STATUSLAZYNESS)
-      if (!ci) {
+      const s = await this.cache.getDoc('ADMIN$Status', { svc: svc}, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+      if (!s) {
         obj.st = 0
       } else {
-        ci.init()
-        const s = ci.getDoc() as ADMIN$Status // s.st: 1 (UP) 2 (RO) ou 9(DOWN)
+        // s.st: 1 (UP) 2 (RO) ou 9(DOWN)
         obj['$ST$'] = s.st
-        if (s.st !== 9) for(const org of Object.keys(obj)) {
-          if (org === '$ST$') continue
-          this.org = org
-          if (this.dbConnector) await this.dbConnector.getConnexion(this, this.org)
-          const cio = await Cache.getRow(this, svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
-          if (!cio) obj[org] = 0
-          else {
-            cio.init()
-            const s: any = cio.getDoc()
-            obj[org] = s.st
+        if (s.st !== 9) 
+          for(const org of Object.keys(obj)) {
+            if (org === '$ST$') continue
+            this.org = org
+            if (this.dbConnector) await this.dbConnector.getConnexion(this, this.org)
+            const cio = await this.cache.getDoc(svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+            if (!cio) obj[org] = 0
+            else obj[org] = cio.st
           }
-        }
       }
     }
     this.setRes('status', this._status)
@@ -250,7 +242,7 @@ class FW$setSubscription extends Operation {
           msgs: this._subs.msgs || null,
           maxLife : this._maxLife
         }
-        this.cache.newDoc(this.svc + '$Subs', initVals)
+        this.cache.putDoc(this.svc + '$Subs', initVals, true)
       }
     } else { // suppression de la subscription pour sessionId
       if (subs) subs._status = DocStatus.DEL
@@ -286,13 +278,9 @@ class FW$getStatus extends Operation {
     this._svc = this.stringValue('svc', true)
   }
   override async phase2 () {
-    const dd = await Cache.getRow(this, this._svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
-    if (!dd) this.setRes('status', { st: 0, at: 0, txt: '' })
-    else {
-      dd.init()
-      const s: any = dd.getDoc()
-      this.setRes('status', { st: s.st, at: s.at, txt: s.txt})
-    }
+    const s = await this.cache.getDoc(this._svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+    if (!s) this.setRes('status', { st: 0, at: 0, txt: '' })
+    else this.setRes('status', { st: s.st, at: s.at, txt: s.txt})
   }
 }
 Registry.registerOp(FW$getStatus)
@@ -314,13 +302,15 @@ class FW$setStatus extends Operation {
   }
   override async phase2 () {
     this.requireAdmin()
-    let doc = await this.cache.getDoc(this._svc + '$Status', { pk: '1' }) as ADMIN$Status
+    let doc = await this.cache.getDoc(this._svc + '$Status', { pk: '1' }) as ADMIN$Status | undefined
     if (doc) doc._status = DocStatus.UPD
-    else doc = this.cache.newDoc(this._svc + '$Status', { pk: '1' }) as ADMIN$Status
-    doc.at = Date.now()
-    doc.st = this._st
-    doc.txt = this._txt || ''
-    this.setRes('status', { st: doc['st'], at: doc['at'], txt: doc['txt']})
+    else doc = await this.cache.putDoc(this._svc + '$Status', { pk: '1' }, true) as ADMIN$Status | undefined
+    if (doc) {
+      doc.at = Date.now()
+      doc.st = this._st
+      doc.txt = this._txt || ''
+      this.setRes('status', { st: doc['st'], at: doc['at'], txt: doc['txt']})
+    }
   }
 }
 Registry.registerOp(FW$setStatus)
@@ -566,7 +556,7 @@ class AutoRevokeCred extends Operation {
     const credRef = !this.authRecord ? undefined : this.authRecord.getCredRef(this._docCl, this._docPk, true)
     if (!credRef || credRef.cred.credId !== this._credId)
       throw new AppExc(103, 'no_cred_owner', this, [this.opName, this.args.svc || '', this.args.org || '?', this._docCl, this._docPk])
-    const dd = credRef.doc._docDescriptor
+    const dd = credRef.doc._descriptor
     if (dd.embedCreds) {
       const d = await this.cache.getDoc(this._docCl, { pk: this._docPk })
       const x = d ? d.embedCreds : undefined
@@ -609,9 +599,9 @@ class credsByDoc extends Operation {
   }
   override async phase2 () {
     this.requireAuth()
-    const dd = DocDescriptor.get(topCl(this.svc, this._docCl))
+    const classInfo = Registry.getClassInfo(this.svc, this._docCl, this._src)
     let lst: $Cred[]
-    if (dd.embedCreds)
+    if (classInfo.descriptor.embedCreds)
       lst = await $Credential.listByDocEmbed(this, this._docCl, this._src)
     else
       lst = await $Credential.listByDoc(this, this._docCl, this._src)
@@ -701,7 +691,7 @@ class FormCreateByU extends Operation {
     let f = await this.cache.getDoc(this.svc + '$Form', this._formObj) as $Form
     if (f) 
       { this.setRes('status', 1); return }
-    f = this.cache.newDoc(this.svc + '$Form', this._formObj) as $Form
+    f = await this.cache.putDoc(this.svc + '$Form', this._formObj, true) as $Form
     f.maxLife = Math.floor(this.now / 1000) + 10
     f.status = 1
     f.msgT = null
@@ -730,7 +720,7 @@ class FormCreateByT extends Operation {
     let f = await this.cache.getDoc(this.svc + '$Form', this._formObj) as $Form
     if (f) 
       { this.setRes('status', 1); return }
-    f = this.cache.newDoc(this.svc + '$Form', this._formObj) as $Form
+    f = await this.cache.putDoc(this.svc + '$Form', this._formObj, true) as $Form
     f.maxLife = Math.floor(this.now / 1000) + 10
     f.status = 2
     f.msgU = null

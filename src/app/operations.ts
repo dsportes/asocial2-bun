@@ -1,11 +1,10 @@
 import { decode } from '@msgpack/msgpack'
 
 import { Operation } from '../src-fw/operation'
-import { Registry, topCl } from '../src-fw/registry'
+import { Registry } from '../src-fw/registry'
 import { $Credential } from '../src-fw/documents'
 import Log from '../src-fw/log'
 import { DocStatus } from '../src-fw/document'
-import { DocDescriptor } from '../src-fw/docDescriptor'
 import { AS2$Auteur } from '../as2/documents'
 import { filter } from '../src-fw/DBabstract'
 
@@ -40,9 +39,9 @@ class AuteurDeId extends Operation {
   }
   override async phase2 () {
     this.requireAuth()
-    const pk = DocDescriptor.get('AS2$Auteur').pkValue(this.src)
+    const pk = AS2$Auteur._descriptor.pkValue(this.src)
     this.getCredRef('Auteur', pk)
-    const aut = await this.cache.getDoc('AS2$Auteur', this.src)
+    const aut = await this.cache.getDoc('Auteur', this.src)
     this.setRes('auteur', aut || null)
   }
 }
@@ -61,7 +60,6 @@ class MajAuteur extends Operation {
   }
   override async phase2 () {
     this.requireAuth()
-    // const pk = DocDescriptor.get('AS2$Auteur').pkValue({ autid: this._autid })
     let c = this.getCredRef('Redaction', '1', true)
     if (!c || c.isSuspended) {
       c = this.getCredRef('Auteur', this._autpk, true, true)
@@ -93,7 +91,7 @@ class ListeAuteursSection extends Operation {
     this.requireAuth()
     const ml = Math.floor(this.now / 60000)
     const c = this.getCredRef('Redaction', '1')
-    const dd = DocDescriptor.get('AS2$Auteur')
+    const dd = AS2$Auteur._descriptor
     const v = dd.getCollId( { section: this._section }, 'section')
     const vx = v && v.length ? v[0] : ''
     const lst: any[] = []   

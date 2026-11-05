@@ -53,9 +53,11 @@ class AS2$Form_auteur extends AS2$Form {
   override async validate (op: Operation, newDocs: $Document[]) : Promise<number> { 
     const autid = await AS2$Auteur.autidDeNom(op, this.opts.auteur.nomAuteur)
     if (autid) return  101
-    const doc = op.cache.newDoc('AS2$Auteur', this.opts.auteur ) as AS2$Auteur
-    doc.embedCred(this.opts.credTemplates)
-    newDocs.push(doc)
+    const doc = await op.cache.putDoc('Auteur', this.opts.auteur, true ) as AS2$Auteur | undefined
+    if (doc) {
+      doc.embedCred(this.opts.credTemplates)
+      newDocs.push(doc)
+    }
     return 0 
   }
 }
@@ -67,9 +69,11 @@ class AS2$Form_coauteur extends AS2$Form {
   override async validate (op: Operation, newDocs: $Document[]) : Promise<number> { 
     const autid = await AS2$Auteur.autidDeNom(op, this.opts.auteur.nomAuteur)
     if (autid !== this.opts.auteur.autid) return  102
-    const doc = await op.cache.getDoc('AS2$Auteur', { autid } ) as AS2$Auteur
-    doc.embedCred(this.opts.credTemplates)
-    newDocs.push(doc)
+    const doc = await op.cache.getDoc('AS2$Auteur', { autid } ) as AS2$Auteur | undefined
+    if (doc) {
+      doc.embedCred(this.opts.credTemplates)
+      newDocs.push(doc)
+    }
     return 0 
   }
 }
@@ -111,7 +115,7 @@ export class AS2$Auteur extends $Document {
     return [data, false]
   }
 
-  override compile () { return this }
+  override async compile () { }
 
   // Liste les credentials attribuable par un administrateur seulement
   static async autidDeNom (op: Operation, nom: string) : Promise<string> {

@@ -38,9 +38,21 @@ export class ClassInfo {
     return new f() as $ADocument
   }
 
-  pkValue (src: any) { return this.descriptor.pkValue(src)  }
+  pkValue (src: any, nohash?: boolean) { 
+    return this.descriptor.pkValue(src, nohash)  }
 
-  docKey (pk: string) : string { return this.fullName + '/' + pk }
+  /* Mute un data en fonction de sa release et d'éventuelles options
+  Met à jour, supprime ajoute les propriétés requises dans la
+  dernière version en fonction de sa release actuell.
+  Retourne couple du data (ancien ou celui muté) 
+  et de l'indicateur de mutation (false si inchangé)
+  */
+  mutate (data: any, options?: Object) : [any, boolean] {
+    const f = (this.clazz as any)['mutateCl']
+    return f ? f(data, options) : [data, false]
+  }
+
+  cacheKey (pk: string) : string { return this.svc + '/' + this.docCl + '/' + pk }
 }
 
 export class $ADocument {

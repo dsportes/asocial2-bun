@@ -1,4 +1,4 @@
-import { encode } from '@msgpack/msgpack'
+import { encode, decode } from '@msgpack/msgpack'
 
 import type { row } from './DBabstract'
 import { Registry, ClassInfo, $ADocument } from './registry'
@@ -23,12 +23,13 @@ export class $Document extends $ADocument {
   dernière version en fonction de sa release actuell.
   Retourne couple du data (ancien ou celui muté) 
   et de l'indicateur de mutation (false si inchangé)
-  */
+  
   static mutate (svc: string, docCl: string, data: any, options?: Object) : [any, boolean] {
     const cl = Registry.getClassInfo(svc, docCl, data).clazz
     const f = (cl as any)['mutateCl']
     return f ? f(data, options) : [data, false]
   }
+  */
 
   // Numéro de release de la structure de la classe
   get classRelease() : number {
@@ -90,19 +91,18 @@ export class $Document extends $ADocument {
   }
 
   // Surchargé par classe
-  compile () {}
+  async compile () {}
 
   /* Méthodes INTERNES au FW ***************************************************/
 
   embedCred (credTemplates: Object) {
     if (!this.embedCreds) this.embedCreds = {}
-    if (credTemplates) for(let credId in credTemplates) {
-      const c = new $CredTempl((credTemplates as any)[credId])
-      const i = c.docCl.indexOf('_')
-      const cl = c.svc + '$' + (i === - 1 ? c.docCl : c.docCl.substring(0, i))
-      if (this._clazz === cl && this.myPk === c.docPk)
-        (this.embedCreds as any)[credId] = c.toEmbedCred()
-    }
+    if (credTemplates) 
+      for(let credId in credTemplates) {
+        const c = new $CredTempl((credTemplates as any)[credId])
+        if (this._docCl === c.docCl && this.myPk === c.docPk)
+          (this.embedCreds as any)[credId] = c.toEmbedCred()
+      }
   }
 
   /* Création de l'instance de "Document" depuis des valeurs initiales de propriétés,
@@ -123,26 +123,62 @@ export class $Document extends $ADocument {
       - valeur: valeur de la propriété clé de la collection dans le document 
         AVANT mise à jour éventuelle de cette valeur
     */
-   if (doc._status !== DocStatus.NEW && doc._docDescriptor.hasColls)
-      doc._before = doc._docDescriptor.extractColls(doc)
+    if (doc._status !== DocStatus.NEW && classInfo.descriptor.colls)
+      doc._before = classInfo.descriptor.extractColls(doc)
     return doc
   }
 
-  /* Construit un "row" pour DB depuis un document - data encodé pas crypté
+  /* Construit un $Document et son row depuis un row.
+    - son _status est DocStatus.NEW
+    - le row d'entrée a si nécessaire été muté dans la dernière release
+    - le document est compilé
   */
-  toRow (now: number) {
+  static async rowToDoc (classInfo: ClassInfo, _row: row)
+    : Promise<{ doc: $Document | undefined, row: row }> {
+    let row = _row
+    let doc: $Document | undefined = undefined
+    if (row.data)
+      try {
+        const m = (classInfo.clazz as any)['mutateCl']
+        let data = decode(row.data)
+        if (m) data = await m(data)
+        doc = await $Document.newDocument(classInfo, data)
+        if (doc) {
+          if (_row._org) doc._org = _row._org 
+          row = doc.toRow()
+        }
+      } catch (e) { }
+    return { doc, row }
+  }
+
+  // Construit un document depuis un objet de propriétés
+  static async newDocument (classInfo: ClassInfo, data: any) 
+  : Promise<$Document | undefined> {
+    try {
+      const doc = classInfo.newD() as $Document
+      doc.release = (doc.constructor as any)['release']
+      doc.v = data.v || 0
+      for (const [key, value] of Object.entries(data)) 
+        if (!key.startsWith('_')) (doc as any)[key] = value
+      await doc.compile()
+      doc._status !== DocStatus.NEW
+      return doc
+    } catch (e) {
+      return undefined
+    }
+  }
+
+  /* Construit un "row" pour DB depuis un document - data encodé pas crypté */
+  toRow (now?: number) {
     const d: any = {}
     // @ts-expect-error
     for (const k of Object.keys(this)) if (k.charAt(0) !== '_') d[k] = this[k]
-    d['v'] = now
+    const v = now || d['v']
+    d['v'] = v
     const x = encode(d)
-    const row: row = {
-      v: now,
-      pk: this.myPk,
-      data: x
-    }
+    const row: row = { v, pk: this.myPk, data: x }
     const ml = this['maxLife']; if (ml) row.maxLife = ml
-    const dt = this._docDescriptor
+    const dt = this._descriptor
     if (dt.colls) for (const [n, c] of dt.colls) 
       (row as any)[n] = c.list ? this.collValue(n) : this.collValue(n)[0]
     if (dt.indexes) for (const [n, ] of dt.indexes) 

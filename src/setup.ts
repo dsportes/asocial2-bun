@@ -1,13 +1,13 @@
 /* Setup de la configuration:
 - des connectors d'accès aux DB
 - des Storages
-- des schemas des documenrs
+- des descriptors des documents
 - des classes de documents
 - des classes d'opération
 
 Les configurations se retrouvent stockées:
 - dans config.ts : DB et storages
-- dans DocDescriptor (schémas)
+- dans descriptors
 - dans Registry (classes de documents et d'opération)
 
 Si web-push peut être importé, sa configuration est fixée
@@ -16,7 +16,7 @@ Si web-push peut être importé, sa configuration est fixée
 import { exit } from 'process'
 // import webpush from 'web-push'
 import config from './config.ts'
-import Log from './src-fw/log.ts'
+// import Log from './src-fw/log.ts'
 import { AppSQLiteConnector } from './app/AppDBsqlite.ts'
 import { FilesystemStorage } from './src-fw/STfilesystem.ts'
 

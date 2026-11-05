@@ -4,15 +4,16 @@ import { Descriptor, FormType } from '../src-fw/descriptor'
 import config from '../config'
 import Log from './log'
 import { AppExc } from './base'
-import { $ADocument, $Document, DocStatus } from './document'
+import { $Document, DocStatus } from './document'
 import { Crypt } from './crypt'
 import { filter } from './DBabstract'
 import { Operation } from './operation'
 import { FW$Sync } from './operations'
-import { Registry } from './registry'
+import { Registry, $ADocument } from './registry'
 import { keyFromB64 } from './b64'
 import { MDandSafe  } from './mdandsafe'
 import type { SetCred } from './safeop'
+import type { SplitUndefined } from '@msgpack/msgpack/dist.esm/context'
 
 let nd = 0, exc: AppExc | undefined
 
@@ -231,7 +232,7 @@ export class $CredTempl {
       doc._status = DocStatus.UPD
     } else {
       const obj = { credId: this.credId, docCl: this.docCl, docPk: this.docPk, maxLife, cred: ec }
-      doc = !op.cache ? undefined : op.cache.newDoc(op.svc + '$Credential', obj) as $Credential
+      doc = !op.cache ? undefined : await op.cache.putDoc(op.svc + '$Credential', obj, true) as $Credential | undefined
     }
     return doc
   }
@@ -419,7 +420,6 @@ export class $Form extends $Document {
     for (const p of $Form.lp1) (f as any)[p] = (obj as any)[p]
     if (obj['ch']) f.ch = obj['ch']
     if (org) f._org = org
-    f._clazz = svc + '$Form'
     return f
   }
 

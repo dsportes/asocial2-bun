@@ -10,10 +10,10 @@ import { DBabstract, cloneRow } from './DBabstract'
 import type { row, srvStatus } from './DBabstract'
 import { updType } from './DBabstract'
 import { Registry, ClassInfo } from './registry'
-import { DocDescriptor } from './docDescriptor'
+import { Descriptor } from './descriptor'
 import { $Document, DocStatus } from './document'
 import { $Credential } from './documents'
-import type { $Cred, Embed$Cred } from './documents'
+import type { $Cred, Embed$Cred, ADMIN$Status } from './documents'
 import { Publisher } from './publisher'
 import { Util } from './util'
 import { Crypt } from './crypt'
@@ -33,11 +33,14 @@ type conso = {
 }
 
 class CacheItem {
+  static cacheKey (svc: string, docCl: string, pk: string) : string { 
+    return svc + '/' + docCl + '/' + pk
+  }
+
   classInfo: ClassInfo
   pk: string
   row: row // En cache globale: détention sous forme row (data décrypté mais sérialisé)
-  
-  private doc?: $Document // En chache d'une opération: détention d'un Document (pas d'un row)
+  doc?: $Document // En cache d'une opération: détention d'un Document (pas d'un row)
 
   constructor (classInfo: ClassInfo, pk: string, row: row) {
     this.classInfo = classInfo
@@ -45,15 +48,20 @@ class CacheItem {
     this.row = row
   }
 
-  get cacheKey() { return this.classInfo.docKey(this.pk)}
+  get cacheKey() { return this.classInfo.cacheKey(this.pk)}
 
   get hasDoc () : boolean { return this.doc !== undefined }
-  getDoc () : $Document { 
-    AppExc.assert(this.doc, 'doc')
-    // @ts-expect-error
-    return this.doc 
+
+  /*
+  async getDoc () : Promise<$Document> { 
+    if (this.doc) return this.doc
+    const { doc, row } = await $Document.rowToDoc ( this.classInfo.svc, this.classInfo.docCl, this.row)
+    this.doc = doc
+    this.row = row
+    return this.doc
   }
   resetDoc () { delete this.doc }
+  */
 
   get status () : DocStatus {
     return !this.doc ? DocStatus.NONE : (this.doc._status || DocStatus.NONE)
@@ -62,13 +70,13 @@ class CacheItem {
   /* Contruit une instance de "Document" depuis le row issu de lecture DB
   Retourne le document compilé
   */
-  init () : void {
+  initDoc () : void {
     const rdata = this.row.data
     AppExc.assert(rdata, 'data')
     // @ts-expect-error
     const d = decode(rdata)
-    const [data, b] = $Document.mutate(this.clazz, d)
-    this.doc = $Document.newDoc(this.clazz, DocStatus.NONE, data)
+    const [data, b] = this.classInfo.mutate(d)
+    this.doc = $Document.newDoc(this.classInfo, DocStatus.NONE, data)
     this.doc._org = this.row._org || ''
   }
 
@@ -230,7 +238,7 @@ export class Operation implements OperationWC {
             this.setRes('hbc', hbc)
           if (this.updates) this.updates.forEach(ci => {
             Cache.updateCache(this, ci)
-            ci.resetDoc
+            // ci.resetDoc
           })
           Cache._purge(this)
           break 
@@ -449,20 +457,13 @@ export class AuthRecord {
   }
 
   async getSvcOrgStatus () : Promise<number> {
-    let ci = await Cache.getRow(this.op, 'ADMIN$Status', { svc: this.op.args.svc}, config.STATUSLAZYNESS)
-    if (!ci) return 0
-    ci.init()
+    const ast = await this.op.cache.getDoc('ADMIN$Status', { svc: this.op.svc }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+    if (!ast) return 0
+    if (ast.st !== 1) return ast.st
 
-    let doc = ci.getDoc() as $Document
-    type ObjectKey = keyof typeof doc
-    const s = doc['st' as ObjectKey]
-    if (s === 9) return 9
-
-    ci = await Cache.getRow(this.op, this.op.args.svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS)
-    if (!ci) return 0
-    ci.init()
-    doc = ci.getDoc() as $Document
-    return doc['st' as ObjectKey] || 0 
+    const sst = await this.op.cache.getDoc(this.op.svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+    if (!sst) return 0
+    return sst.st
   }
 
   getCredRef (docCl: string, docPk: string, noex?: boolean, checkSusp?: boolean) : CredRef | null {
@@ -497,16 +498,16 @@ export class AuthRecord {
       const i = ref.indexOf('/')
       const docCl = i === -1 ? ref : ref.substring(0, i)
       const docPk = i === -1 ? '' : ref.substring(i + 1)
-      const dt = DocDescriptor.get(topCl(this.op.svc, docCl))
+      const dt = Registry.getClassInfo(this.op.svc, docCl).descriptor
       let credRef: CredRef | undefined
       if (dt.embedCreds) { // Recherche du Credential dans le creds du document
-        const d = !this.op.cache ? null : await this.op.cache.getDoc(this.op.svc + '$' + docCl, { pk: docPk }) as $Document
+        const d = !this.op.cache ? null : await this.op.cache.getDoc(docCl, { pk: docPk }) as $Document
         if (d && d.embedCreds) {
           const ec = (d.embedCreds as any)[credId]
           if (ec) credRef = new CredRef(d, ec, true)
         }
       } else { // Recherche du Credential par sa pk
-        const c = !this.op.cache ? null : await this.op.cache.getDoc(this.op.svc + '$Credential', { credId, docCl }) as $Credential
+        const c = !this.op.cache ? null : await this.op.cache.getDoc('$Credential', { credId, docCl }) as $Credential
         if (c && c.docCl === docCl && c.docPk === docPk) {
           if (c.cred) {
             credRef = new CredRef(c, c.cred, false)
@@ -596,6 +597,7 @@ export class Cache {
   Si le row n'était pas en cache ou que la version lue est plus récente : IL Y EST MIS:
   Certes la transaction peut échouer, mais au pire on a lu une version plus récente.
   - lazy: nombre de SECONDES d'ancienneté accepté pour une lecture non bloquante
+  - src: objet NE CONTENANT QUE les propriétés de pk
   */
   static async getRow(op: Operation, docCl: string, src: Object, lazy?: number)
     : Promise<CacheItem | undefined> {
@@ -604,7 +606,7 @@ export class Cache {
     const pk = classInfo.pkValue(src)
     const oc: Map<string, CacheEntry> = Cache.orgCache(op)
     const now = Date.now()
-    const k = classInfo.docKey(pk)
+    const k = classInfo.cacheKey(pk)
     let item = oc.get(k) as CacheEntry
     if (item && lazy && ((now - item.time) < (lazy * Cache.LAZY_MS))) {
       item.lru = now
@@ -638,7 +640,12 @@ export class Cache {
       if (item) {
         item.lru = op.now
         item.row.deleted = true
-        item.row.data = encode({ deleted: true, v: op.now, _pk: item.row.pk, _clazz: ci.clazz })
+        item.row.data = encode({ 
+          deleted: true, 
+          v: op.now, 
+          _pk: item.row.pk, 
+          _clazz: ci.classInfo.docCl 
+        })
       }
     } else {
       if (item) { // remplacement éventuel
@@ -677,57 +684,66 @@ export class Cache {
   }
 
   /* Retourne ou lit de la base le Document cité par src:
-  - src : objet contenant les propriétés de la pk
+  - src : objet NE CONTENANT QUE les propriétés de la pk
+  Si le document existe déjà compilé dans la cache de l'opération il est retourné.
+  Sinon,
+  - son row est lu de la cache globale,
+  - il est le cas échéant muté
+  - il est compilé.
   */
-  async getDoc (clazz: string, src?: any, assert?: string) : Promise<$Document | undefined> {
-    const topClazz = topCl(this.op.svc, clazz)
-    const dx = DocDescriptor.get(topClazz)
-    const pk = dx.pkValue(src)
-    const k = CacheItem.key(clazz, pk)
-    let ci = this.docs.get(k)
-    if (ci && ci.hasDoc) return ci.getDoc()
-    ci = await Cache.getRow(this.op, clazz, src)
-    if (!ci) {
-      if (assert) this.op.assertKO(assert, [clazz, dx.pkValue(src, false)])
-      return undefined
-    }
-    ci.init()
-    this.docs.set(k, ci)
-    return ci.getDoc()
-  }
-
-  /* Met en cache un row issu de la lecture en mode "report" de la DB.
-  Si le document était déjà présent et plus récent, il est CONSERVE.
-  Retourne le document.
-  */
-  putRow (clazz: string, row: row) : $Document | null {
-    const k = CacheItem.key(clazz, row.pk)
-    let ci = this.docs.get(k)
-    if (ci && ci.hasDoc) return ci.getDoc()
-    ci = new CacheItem(clazz, row.pk, row)
-    ci.init()
-    this.docs.set(k, ci)
-    // @ts-expect-error
-    return ci.doc
-  }
-
-  /* Met en cache un NOUVEAU document (création) depuis un objet source.
-  Toutefois SI le document était déjà présent et plus récent, il est CONSERVE.
-  Retourne le document.
-  */
-  newDoc (docCl: string, src?: Object) : $Document {
+  async getDoc (docCl: string, src?: any, lazy?: number, assert?: string) : Promise<$Document | undefined> {
     const classInfo = Registry.getClassInfo(this.op.svc, docCl, src)
     const pk = classInfo.pkValue(src)
-    const k = classInfo.docKey(pk)
+    const k = classInfo.cacheKey(pk)
     let ci = this.docs.get(k)
-    if (ci) return ci.getDoc()
-    const dx = $Document.newDoc(clazz, DocStatus.NEW, src || {}) 
-    AppExc.assert(dx, 'dx')
-    dx._org = this.op.org
-    // @ts-expect-error
-    ci = new CacheItem(classInfo, pk, dx)
+    if (ci) return ci.doc
+    
+    ci = await Cache.getRow(this.op, docCl, src, lazy || 0)
+    if (!ci) {
+      if (assert) this.op.assertKO(assert, [docCl, pk])
+      return undefined
+    }
+    const { doc, row } = await $Document.rowToDoc(ci.classInfo, ci.row)
+    if (!doc) {
+      if (!assert) return undefined
+      throw this.op.assertKO(assert, [docCl, k])
+    }
+    ci.row = row
     this.docs.set(k, ci)
-    return dx
+    return doc
+  }
+
+  /* Met en cache un objet issu de la lecture en mode "report" de la DB.
+  Si le document était déjà présent et plus récent, il est CONSERVE.
+  Retourne le document (muté et compilé).
+  Si newDoc, le status est NEW, sinon il NONE (éxistait déjà) 
+  */
+  async putDoc (docCl: string, data: any, newDoc: boolean, assert?: string) 
+  : Promise<$Document | undefined> {
+    let pk: string = '?'
+    try {
+      const classInfo = Registry.getClassInfo(this.op.svc, docCl, data)
+      pk = classInfo.pkValue(data)
+      const doc = await $Document.newDocument(classInfo, data) as $Document
+      if (!doc) {
+        if (!assert) return undefined
+        throw this.op.assertKO(assert, [docCl, pk])
+      }
+      const k = CacheItem.cacheKey(this.op.svc, docCl, pk)
+      let ci = this.docs.get(k)
+      if (ci && ci.doc && ci.doc.v >= doc.v) return ci.doc
+
+      doc._status = newDoc ? DocStatus.NEW : DocStatus.NONE
+      const row = doc.toRow()
+      if (!ci) ci = new CacheItem(classInfo, pk, row)
+      else ci.row = row
+      ci.doc = doc
+      this.docs.set(k, ci)
+      return doc
+    } catch (e) { 
+      if (!assert) return undefined
+      throw this.op.assertKO(assert, [docCl, pk])
+    }
   }
 
   /* Marque le document identifié par sa pk 
@@ -737,12 +753,13 @@ export class Cache {
   - si le document a status NEW, il est retiré (ne sera pas créé).
   - sinon son status est à DEL.
   */
-  delDoc (clazz: string, pk: string) {
-    const k = CacheItem.key(clazz, pk)
+  delDoc (docCl: string, pk: string) {
+    const k = docCl + '/' + pk
     let ci = this.docs.get(k)
     if (ci) {
       if (ci.status === DocStatus.NEW) this.docs.delete(k)
-      else ci.getDoc()._status = DocStatus.DEL
+      // @ts-expect-error
+      else ci.doc._status = DocStatus.DEL
     }
   }
 
@@ -757,21 +774,24 @@ export class Cache {
     this.op.updates = []
     for (const [k, ci] of this.docs) {
       if (ci.status === DocStatus.NONE) continue
-      const doc = ci.getDoc()
+      const d: Descriptor = ci.classInfo.descriptor
+      const dbName = ci.classInfo.dbName
+      // @ts-expect-error
+      const doc: $Document = ci.doc
       ci.row = doc._status === DocStatus.UPD || doc._status === DocStatus.NEW ?
         doc.toRow(this.op.now) : doc.toZombiRow(this.op.now)
       this.op.updates.push(ci)
       if (doc._status === DocStatus.UPD)
-        db.writeRow(updType.UPDATE, ci.clazz, ci.row)
+        db.writeRow(updType.UPDATE, dbName, ci.row)
       else if (doc._status === DocStatus.NEW)
-        db.writeRow(updType.CREATE, ci.clazz, ci.row)
+        db.writeRow(updType.CREATE, dbName, ci.row)
       else { // DocStatus.DEL
-        if (doc._docDescriptor.sync) db.writeRow(updType.UPDATE, ci.clazz, ci.row)
-        else db.deleteRow(ci.clazz, ci.pk)
+        if (d.sync) db.writeRow(updType.UPDATE, dbName, ci.row)
+        else db.deleteRow(dbName, ci.pk)
       }
-      if (doc._docDescriptor.sync && doc._docDescriptor.colls) {
-        const is = this.op.impactedSubs.getEntry(ci.clazz, ci.pk)
-        if (ci.row) this.manageColls(db, ci.clazz, doc, ci.row, is)
+      if (d.sync && d.colls) {
+        const is = this.op.impactedSubs.getEntry(dbName, ci.pk)
+        if (ci.row) this.manageColls(db, dbName, doc, ci.row, d, is)
       }
     }
     this.op.hasUpdates = this.op.updates.length !== 0
@@ -781,9 +801,9 @@ export class Cache {
     - inscription dans impactedSubs
     - création des rowQ : trace des disparitions des collections "mutables"
   */
-  manageColls (db: DBabstract, clazz: string, doc: $Document, row: row, is: ImpactedSub) {
+  manageColls (db: DBabstract, dbName: string, doc: $Document, row: row, d: Descriptor, is: ImpactedSub) {
 
-    for (const [n, collection] of doc._docDescriptor.colls) {
+    if (d.colls) for (const [n, collection] of d.colls) {
     
       // b, a : valeurs de la propriété clé de la collection n AVANT / APRES mise à jour éventuelle
 
@@ -804,8 +824,8 @@ export class Cache {
 
       if (doc._status === DocStatus.DEL) { 
         // le ou les termes "before" quittent le ou les (list) documents
-        if (collection.list) for (const x of b) db.writeRowQ(clazz, n, row.pk, row.v, x)
-        else db.writeRowQ(clazz, n, row.pk, row.v, b[0] || '')
+        if (collection.list) for (const x of b) db.writeRowQ(dbName, n, row.pk, row.v, x)
+        else db.writeRowQ(dbName, n, row.pk, row.v, b[0] || '')
         continue
       }
 
@@ -815,9 +835,9 @@ export class Cache {
       if (collection.list) {
         const as = a ? new Set(a) : new Set()
         for (const x of b) 
-          if (!as.has(x)) db.writeRowQ(clazz, n, row.pk, row.v, x)
+          if (!as.has(x)) db.writeRowQ(dbName, n, row.pk, row.v, x)
       } else if (a && (a[0] !== b[0])) 
-        db.writeRowQ(clazz, n, row.pk, row.v, b[0] || '')
+        db.writeRowQ(dbName, n, row.pk, row.v, b[0] || '')
     }
   }
 } 
@@ -839,11 +859,11 @@ export class ImpactedSubs {
     this.all = new Map()
   }
 
-  getEntry (clazz: string, pk: string) : ImpactedSub {
-    const k = CacheItem.key(clazz, pk)
+  getEntry (docCl: string, pk: string) : ImpactedSub {
+    const k = docCl + '/' + pk
     let is = this.all.get(k)
     if (!is) {
-      is = new ImpactedSub(clazz, pk)
+      is = new ImpactedSub(docCl, pk)
       this.all.set(k, is)
     }
     return is
@@ -852,15 +872,15 @@ export class ImpactedSubs {
 
 export class ImpactedSub {
 
-  clazz: string // du document
+  docCl: string // du document
   pk: string // du document 
   colls: Map<string, Set<string>> 
   /* key: nom de la collection (colName)
     value: colValues - set des valeurs impactées (ajoutées et retirées)
   */
 
-  constructor (clazz: string, pk: string) {
-    this.clazz = medCl(clazz)
+  constructor (docCl: string, pk: string) {
+    this.docCl = docCl
     this.pk = pk
     this.colls = new Map()
   }
