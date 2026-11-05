@@ -1,5 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import d from './descriptors'
+import { Descriptor, FormType } from '../src-fw/descriptor'
 import config from '../config'
 import Log from './log'
 import { AppExc } from './base'
@@ -8,25 +9,16 @@ import { Crypt } from './crypt'
 import { filter } from './DBabstract'
 import { Operation } from './operation'
 import { FW$Sync } from './operations'
-import { Registry, topCl } from './registry'
-import { DocDescriptor, FormType } from './docDescriptor'
+import { Registry } from './registry'
 import { keyFromB64 } from './b64'
 import { MDandSafe  } from './mdandsafe'
 import type { SetCred } from './safeop'
-// import { Util } from '../src-fw/util'
 
-const decoder = new TextDecoder()
 let nd = 0, exc: AppExc | undefined
-
-export function loadingDF () {
-  Log.info('fw documents loading: ' + nd)
-}
 
 class ADMIN$Task extends $Document {
   static _descriptor = d.ADMIN$Task
-
   static release = 0
-
 }
 nd++; exc = Registry.register(ADMIN$Task)
 
@@ -214,11 +206,10 @@ export class $CredTempl {
     - le retour est celui du document credential
   */
   async createCredential (op: Operation) : Promise<$Document | undefined> {
-    const clazz = op.svc + '$' + this.docCl
     const ec = this.toEmbedCred()
-    const dt = DocDescriptor.get(clazz)
-    if (dt.embedCreds) {
-      const doc = !op.cache ? undefined : await op.cache.getDoc(clazz, { pk: this.docPk })
+    const d = Registry.getClassInfo(op.svc, this.docCl).descriptor
+    if (d.embedCreds) {
+      const doc = !op.cache ? undefined : await op.cache.getDoc(d.fullName, { pk: this.docPk })
       if (!doc) return undefined
       if (!doc.embedCreds) doc.embedCreds = {}
       doc.embedCreds[this.credId] = ec
@@ -255,8 +246,7 @@ export class $Credential extends $Document {
   cred?: Embed$Cred
   // En cache d'opération SEULEMENT sur détection de credential par authRecord
   embeddingDoc?: $Document
-
-  get dt () { return DocDescriptor.get(this._svc + '$' + this.docCl)}
+  get dt () { return Registry.getClassInfo(this._svc, this.docCl).descriptor}
   get isEmbed () { return this.dt.embedCreds }
   get isValid () {
     const p = this.cred ? this.cred.props : undefined
@@ -266,7 +256,7 @@ export class $Credential extends $Document {
   static async update (op: Operation, credId: string, docCl: string, 
     docPk: string, props: any): Promise<$Document | undefined> {
 
-    const dt = DocDescriptor.get(op.svc + '$' + docCl)
+    const dt = Registry.getClassInfo(op.svc, docCl).descriptor
     let doc
     if (dt.embedCreds) {
       doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$' + docCl, { pk: docPk }) as $Document
@@ -283,19 +273,13 @@ export class $Credential extends $Document {
     return doc
   }
 
-  // Liste les credentials attribuable par un administrateur seulement TOCHECK !!!
+  // Liste les credentials attribuables par un administrateur seulement TOCHECK !!!
   static async listManagers (op: Operation) : Promise<$Cred[]> {
     const lst: $Cred[] = []
-    let sel: string[] = []
-    for(const cl of Registry.managers) {
-      let i = cl.indexOf('_')
-      const docCl = cl.substring(i + 1)
-      const dd = DocDescriptor.get(cl)
-      const x = dd.getIdx({ docCl: docCl, docPk: '1' }, 'doc')
-      sel.push(x)
-    }
+    const sel: string[] | undefined = config.SERVICES.get(op.svc)
+    if (!sel) return lst
       
-    if (sel.length && op.db) await op.db.selectDocs(op.svc + '$Credential', 'doc', filter.IN, sel, '', 0, 
+    if (op.db) await op.db.selectDocs(op.svc + '$Credential', 'doc', filter.IN, sel, '', 0, 
       (bin: Uint8Array) => {
         try {
           const c: any = decode(bin)
@@ -319,12 +303,14 @@ export class $Credential extends $Document {
   /* Liste les credentials NON embarqués d'un document donné par sa classe
   et les propriétés de sa pk.
   */
-  static async listByDoc (op: Operation, docCl: string, src: Object) : Promise<$Cred[]> {
-    const dd = DocDescriptor.get(topCl(op.svc, 'Credential'))
-    const docPk = dd.pkValue(src)
-    const val = dd.getIdx({ docCl, docPk }, 'doc')
+  static async listByDoc (op: Operation, docCl: string, src: any) : Promise<$Cred[]> {
     const lst: $Cred[] = []
-    if (op.db) await op.db.selectDocs('$Credential', 'doc', filter.EQ, val[0], '', 0, 
+    let d: Descriptor
+    try { d = Registry.getClassInfo(op.svc, 'Credential').descriptor } catch(e) { return lst }
+    const docPk = d.pkValue(src)
+    const val = d.getIdx({ docCl, docPk }, 'doc')
+
+    if (op.db) await op.db.selectDocs(op.svc + '$Credential', 'doc', filter.EQ, val[0], '', 0, 
       (bin: Uint8Array) => {
         try {
           const c: any = decode(bin)
@@ -349,10 +335,13 @@ export class $Credential extends $Document {
   et les propriétés de sa pk.
   */
   static async listByDocEmbed (op: Operation, docCl: string, src: Object) : Promise<$Cred[]> {
-    const pk = DocDescriptor.get(topCl(op.svc, docCl)).pkValue(src)
+    const lst: $Cred[] = []
+    let d: Descriptor
+    try { d = Registry.getClassInfo(op.svc, 'Credential').descriptor } catch(e) { return lst }
+    const pk = d.pkValue(src)
     const doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$' + docCl, { pk })
     const creds: $Cred[] = doc && doc.embedCreds ? Array.from(doc.embedCreds.values()) : []
-    const lst: $Cred[] = []
+
     for (const c of creds)
       if (!c.props.limit || c.props.limit * 60000 > op.now)
         lst.push({

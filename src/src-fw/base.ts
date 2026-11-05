@@ -3,6 +3,8 @@ import { encode, decode } from '@msgpack/msgpack'
 import config from '../config'
 import adminAlert from './adminAlert'
 import Log from './log'
+import { ClassInfo } from './registry'
+import { Descriptor } from './descriptor'
 import type { AbstractOperation } from './types'
 
 export type StartEnd = { start: number, end: number, err?: number }
@@ -81,7 +83,10 @@ export class AppExc {
 }
 
 export class $ADocument {
-  get _docDescriptor () { return (this.constructor as any)['_docDescriptor'] }
+  static _classInfo: ClassInfo
+  get _descriptor () : Descriptor | undefined { 
+    return (this.constructor as any)['_docDescriptor'] 
+  }
 }
 
 /*

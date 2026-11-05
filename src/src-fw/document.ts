@@ -1,17 +1,13 @@
 import { encode } from '@msgpack/msgpack'
 
 import type { row } from './DBabstract'
-import { Registry } from './registry'
+import { Registry, ClassInfo, $ADocument } from './registry'
 import { $CredTempl } from './documents'
 
 export enum DocStatus { NONE, UPD, NEW, DEL }
 
-export class $ADocument {
-  get _docDescriptor () { return (this.constructor as any)['_docDescriptor'] }
-}
-
 export class $Document extends $ADocument {
-  _clazz: string = ''
+  // get _classInfo _descriptor _svc _docCl _subCl
   _org: string = ''
   _status?: DocStatus
   _before?: Map<string, string[]> // Map des valeurs des collections AVANT
@@ -21,12 +17,6 @@ export class $Document extends $ADocument {
   release: number = 0 // numéro de release de la structure de l'objet
   maxLife?: number // EPOCH en MINUTES de fin de vie logique du document
   embedCreds?: any
-
-  get _docCl () {
-    const x = this._clazz.substring(this._clazz.indexOf('$') + 1)
-    const i = x.indexOf('_')
-    return i === - 1 ? x : x.substring(0, i)
-  }
   
   /* Mute un data en fonction de sa release et d'éventuelles options
   Met à jour, supprime ajoute les propriétés requises dans la
@@ -34,17 +24,13 @@ export class $Document extends $ADocument {
   Retourne couple du data (ancien ou celui muté) 
   et de l'indicateur de mutation (false si inchangé)
   */
-  // TOCHECK
   static mutate (svc: string, docCl: string, data: any, options?: Object) : [any, boolean] {
     const cl = Registry.getClassInfo(svc, docCl, data).clazz
     const f = (cl as any)['mutateCl']
     return f ? f(data, options) : [data, false]
   }
 
-  get _svc () { return this._clazz.substring(0, this._clazz.indexOf('$')) }
-
   // Numéro de release de la structure de la classe
-  // TOCHECK
   get classRelease() : number {
     return (this.constructor as any)['release']
   }
@@ -55,10 +41,10 @@ export class $Document extends $ADocument {
   }
 
   // Retourne la VALEUR HASH de pk (séparation par / PUIS hash)
-  get myPk () : string { return this._docDescriptor.pkValue(this)}
+  get myPk () : string { return this._descriptor.pkValue(this)}
 
   // Retourne la VALEUR NON HACHEE de pk (séparation par /)
-  get myPkNH () : string { return this._docDescriptor.pkValue(this, true)}
+  get myPkNH () : string { return this._descriptor.pkValue(this, true)}
 
   // Retourne true si le document n'est pas _zombi_ et n'a pas dépassé sa maxLife
   isAlive (now: number) : boolean {
@@ -74,7 +60,7 @@ export class $Document extends $ADocument {
   C'est un STRING[] des valeurs hachées.
   Quand la propriété de collection N'EST PAS une liste, sa valeur est [0]
   */
-  collValue (name: string) : string[] { return this._docDescriptor.getCollId(this, name)}
+  collValue (name: string) : string[] { return this._descriptor.getCollId(this, name)}
 
   /* Retourne la VALEUR la propriété d'index nommée name:
   Selon le type de cette propriété c'est:
@@ -82,7 +68,7 @@ export class $Document extends $ADocument {
   - number : pour les types INTEGER FLOAT
   - string[] : pour le type LIST
   */
-  idxValue (name: string) : any { return this._docDescriptor.getIdx(this, name)}
+  idxValue (name: string) : any { return this._descriptor.getIdx(this, name)}
 
   /* Invoqué après lecture de DB, désérialisation du data et création
   du Document associé. Traitement éventuel, pour génération de propriétés
@@ -124,9 +110,8 @@ export class $Document extends $ADocument {
   - propriétés de création.
   Retourne le Document.
   */
-  static newDoc (clazz: string, status: DocStatus, initVals: Object) : $Document {
-    const doc = Registry.newD('', clazz, initVals) as $Document
-    doc._clazz = clazz
+  static newDoc (classInfo: ClassInfo, status: DocStatus, initVals: Object) : $Document {
+    const doc = classInfo.newD() as $Document
     doc._status = status
     doc.release = (doc.constructor as any)['release']
     doc.v = 0

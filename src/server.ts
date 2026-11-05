@@ -148,7 +148,7 @@ const doOp = async (body: Uint8Array, baseUrl: string) : Promise<Response> => {
         obj = { key: sv ? sv.pub : '' }
         break
       case 'CONFIG$Services' :
-        obj = { at: Date.now(), services: Array.from(config.SERVICES) }
+        obj = { at: Date.now(), services: Array.from(config.SERVICES.keys()) }
         break
       case 'CONFIG$AdminID' :
         const k = Crypt.shaS(keyFromB64(args['pwd']))

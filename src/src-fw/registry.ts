@@ -1,6 +1,6 @@
-import { AppExc, $ADocument } from './base'
+import { AppExc } from './base'
 import { Descriptor } from './descriptor'
-import { DocDescriptor } from './docDescriptor'
+import config from '../config'
 
 interface Described {
   get _descriptor () : Descriptor 
@@ -21,6 +21,9 @@ export class ClassInfo {
   readonly descriptor: Descriptor
   readonly clazz: Function | FakeDoc 
 
+  get fullName () { return this.svc + '/' + this.docCl + (this.subCl ? ('/' + this.subCl) : '')}
+  get dbName () { return this.svc + '$' + this.docCl + (this.subCl ? ('@' + this.subCl) : '')}
+
   constructor (svc: string, docCl: string, subCl: string, descriptor: Descriptor, 
     clazz: Function | FakeDoc) {
     this.svc = svc; this.docCl = docCl; this.subCl = subCl; this.descriptor = descriptor; 
@@ -30,17 +33,24 @@ export class ClassInfo {
   newD () : $ADocument {
     if (this.descriptor.virtual)
       throw new AppExc(3, 'document_not_instantiable', 'Registry.getClassInfo(5)', [this.fullName])
-    const f = this.clazz
-    // @ts-expect-error
+    const f = this.clazz as any
+    if (!f._classInfo) f._classInfo = this
     return new f() as $ADocument
   }
 
-  pkValue (src?: any, nohash?: boolean) : string{ return this.pkValue(src, nohash)}
+  pkValue (src: any) { return this.descriptor.pkValue(src)  }
 
-  get fullName () { return this.svc + '/' + this.docCl + (this.subCl ? ('/' + this.subCl) : '')}
-
+  docKey (pk: string) : string { return this.fullName + '/' + pk }
 }
 
+export class $ADocument {
+  get _classInfo () : ClassInfo { return (this.constructor as any)._classInfo }
+  get _descriptor () : Descriptor { return (this.constructor as any)._descriptor }
+  get _svc () : string { return this._classInfo.svc }
+  get _docCl () : string { return this._classInfo.docCl }
+  get _subCl () : string { return this._classInfo.subCl }
+}
+/*
 export const subCl = (clazz: string) => {
   const i = clazz.indexOf('_')
   return i === -1 ? '' : clazz.substring(i + 1)
@@ -63,6 +73,7 @@ export const svcCl = (clazz: string) => {
   const i = clazz.indexOf('$')
   return i === -1 ? '' : clazz.substring(0, i)
 }
+*/
 
 export class Registry {
   // Map des classes enregistrées par svc / docCl / subCl
@@ -144,28 +155,10 @@ export class Registry {
     return ci.newD() as $ADocument
   }
 
-  /* Retourne le set des noms des sous-classes ('subCl')
-  des classes de documents du svc donné et ayant pour docCl 'Credential' */
-  static managersOfSvc (svc: string) : Set<string> {
-    const s: Set<string> = new Set()
-    for(const clazz of Registry.managers) {
-      const d = (clazz as any)['_descriptor'] as Descriptor
-      if (d && d.svc === svc && d.docCl === 'Credential')
-        s.add((clazz as any)['_manager'])
-    }
-    return s
+  static isManager (svc: string, docCl: string) {
+    const x = config.SERVICES.get(svc)
+    return x !== undefined && (x.indexOf(docCl) !== -1)
   }
-
-  /*
-  static managersOfSvc2 (svc: string) : Set<string> {
-    const s: Set<string> = new Set()
-    for(const x of Registry.managers) {
-      const i = x.indexOf('_')
-      if (x.substring(0, i) === svc + '$Credential') s.add(x.substring(i + 1))
-    }
-    return s
-  }
-  */
 
   static regOp: Map<string, Function> = new Map()
   static sizeOp () { return Registry.regOp.size }

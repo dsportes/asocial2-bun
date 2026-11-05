@@ -24,7 +24,10 @@ export default {
 
   serverOps: new Set(['op', 'safe', 'master']),
 
-  SERVICES: new Set(['AS2']),
+  SERVICES: new Map([
+    ['AS2', ['CoDir', 'Redaction']]
+  ]),
+
   ADMINIDS: { 
     'C5ov-RUbygqXvwKL9TxC' : admin1, 
     '8i3UFqA_HoNWPJB1SrKv' : admin2 

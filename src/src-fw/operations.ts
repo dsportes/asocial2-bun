@@ -1019,7 +1019,7 @@ class UpdateCredential extends Operation {
     this._props = this.objectValue('props', true)
   }
   override async phase2 () {
-    if (Registry.managersOfSvc(this.svc).has(this._docCl)) {
+    if (Registry.isManager(this.svc, this._docCl)) {
       this.requireAdmin()
       const doc = await $Credential.update(this, this._credId, this._docCl, this._docPk, this._props)
       this.setRes('status', doc ? 0 : 1)

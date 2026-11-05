@@ -80,18 +80,13 @@ class AS2$Credential extends $Credential {
 }
 if (!exc) { nd++; exc = Registry.register(AS2$Credential) }
 
-class AS2$Credential_CoDir extends AS2$Credential {
-  static _manager = true
-}
+class AS2$Credential_CoDir extends AS2$Credential { }
 if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Credential_CoDir, AS2$Credential, 'CoDir') }
 
-class AS2$Credential_Redaction extends AS2$Credential {
-  static _manager = true
-}
+class AS2$Credential_Redaction extends AS2$Credential { }
 if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Credential_Redaction, AS2$Credential, 'Redaction') }
 
-class AS2$Credential_Auteur extends AS2$Credential {
-}
+class AS2$Credential_Auteur extends AS2$Credential { }
 if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Credential_Auteur, AS2$Credential, 'Auteur') }
 
 export class AS2$CoDir extends $Document {
