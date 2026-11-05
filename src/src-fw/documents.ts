@@ -1,5 +1,5 @@
 import { decode } from '@msgpack/msgpack'
-
+import d from './descriptors'
 import config from '../config'
 import Log from './log'
 import { AppExc } from './base'
@@ -16,19 +16,23 @@ import type { SetCred } from './safeop'
 // import { Util } from '../src-fw/util'
 
 const decoder = new TextDecoder()
-let nd = 0
+let nd = 0, exc: AppExc | undefined
 
 export function loadingDF () {
   Log.info('fw documents loading: ' + nd)
 }
 
 class ADMIN$Task extends $Document {
+  static _descriptor = d.ADMIN$Task
+
   static release = 0
 
 }
-nd++; Registry.register(ADMIN$Task)
+nd++; exc = Registry.register(ADMIN$Task)
 
 export class ADMIN$Status extends $Document {
+  static _descriptor = d.ADMIN$Status
+
   static release = 0
   svc: string = '' // service (pk)
   st: number = 0 // code 0: inconnu 1: UP 2: READ-ONLY 9: DOWN
@@ -40,7 +44,16 @@ export class ADMIN$Status extends $Document {
   isRW () { return this.st === 1 }
   isDOWN () { return this.st === 9 }
 }
-nd++; Registry.register(ADMIN$Status)
+if (!exc) { nd++; exc = Registry.register(ADMIN$Status) }
+
+export const FWreport = () : AppExc | undefined => {
+  if (!exc)
+    console.log(`FWloading: ${nd} documents, 0 forms`)
+  else {
+    console.log(`FWloading FAILED: ${exc.toString()}`)
+    return exc
+  }
+}
 
 export class $CredChecker extends $ADocument {
   // @ts-expect-error
@@ -270,7 +283,7 @@ export class $Credential extends $Document {
     return doc
   }
 
-  // Liste les credentials attribuable par un administrateur seulement
+  // Liste les credentials attribuable par un administrateur seulement TOCHECK !!!
   static async listManagers (op: Operation) : Promise<$Cred[]> {
     const lst: $Cred[] = []
     let sel: string[] = []

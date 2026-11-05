@@ -1,4 +1,3 @@
-// import { decode } from '@msgpack/msgpack'
 import config from '../config'
 import Log from './log'
 import { Operation, Cache } from './operation'
@@ -11,7 +10,6 @@ import { ADMIN$Status, $Subs,  $Credential,
   $Form, $CredTempl, $CredChecker } from './documents'
 import type { $SubsObj, $Cred, $FormObj} from './documents'
 import { DocStatus, $Document } from './document'
-// import { Util } from './util'
 
 export function loadingOF () {
   Log.info('fw operations loading: ' + Registry.sizeOp())

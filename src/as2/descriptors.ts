@@ -49,4 +49,6 @@ export default {
 
   AS2$SubsGenerator  : Descriptor.doc('AS2', 'SubsGenerator', { }),
 
+  AS2$CredChecker  : Descriptor.doc('AS2', 'CredChecker', { }),
+
 }

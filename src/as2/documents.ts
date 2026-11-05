@@ -1,5 +1,5 @@
-import { encode, decode } from '@msgpack/msgpack'
-
+import d from './descriptors'
+import { decode } from '@msgpack/msgpack'
 import { $Document } from '../src-fw/document'
 import { $Form, ADMIN$Status, $Credential, $Subs, $CredChecker } from '../src-fw/documents'
 import Log from '../src-fw/log'
@@ -9,13 +9,7 @@ import { Operation } from '../src-fw/operation'
 import { filter } from '../src-fw/DBabstract'
 import { FormType } from '../src-fw/descriptor'
 
-let nd = 0
-
-export function loadingDA () {
-  Log.info('app operations loading: ' + nd)
-}
-
-let n = 0, nf = 0, exc: AppExc | undefined
+let nd = 0, nf = 0, exc: AppExc | undefined
 
 if (!exc) { nf++; exc = FormType.register('AS2', 'membrecodir', 'AS2_ad', 'k1', ['A']) }
 if (!exc) { nf++; exc = FormType.register('AS2', 'membreredaction', 'AS2_ad', 'k1', ['A']) }
@@ -23,47 +17,35 @@ if (!exc) { nf++; exc = FormType.register('AS2', 'auteur', 'AS2_auteurs', 'k2', 
 // Un Auteur peut aussi nommer un co-auteur
 if (!exc) { nf++; exc = FormType.register('AS2', 'coauteur', 'AS2_auteurs', 'k2', ['Redaction/1', 'Auteur/$1']) }
 
+class AS2$Status extends ADMIN$Status { 
+  static override _descriptor = d.AS2$Status
+}
+if (!exc) { nd++; exc = Registry.register(AS2$Status) }
 
-/*
-new FormType('membrecodir', 'k1', ['A'])
-new FormType('membreredaction', 'k1', ['A'])
-new FormType('auteur', 'k2', ['Readction/1'])
-// Un Auteur peut aussi nommer un co-auteur
-new FormType('coauteur', 'k2', ['Readction/1', 'Auteur/$1'])
-*/
-
-/* Méthodes à surcharger
-  getDetail () { return [] }
-
-  async validate (op: Operation, newDocs: $Document[]) : Promise<number> { 
-    return await super.validate(op, newDocs)
-  }
-*/ 
-
-class AS2$Status extends ADMIN$Status { }
-nd++; Registry.register(AS2$Status)
-
-class AS2$Subs extends $Subs { }
-nd++; Registry.register(AS2$Subs)
+class AS2$Subs extends $Subs { 
+  static _descriptor = d.AS2$Subs
+}
+if (!exc) { nd++; exc = Registry.register(AS2$Subs) }
 
 class AS2$CredChecker extends $CredChecker {
-  static _unregistered = true
-  // surcharge éventuelle des méthodes check0 check1 check2
+  static _descriptor = d.AS2$CredChecker
 }
-nd++; Registry.register(AS2$CredChecker)
+if (!exc) { nd++; Registry.register(AS2$CredChecker) }
 
-class AS2$Form extends $Form { }
-nd++; Registry.register(AS2$Form)
+class AS2$Form extends $Form {
+  static _descriptor = d.AS2$Form
+}
+if (!exc) { nd++; exc = Registry.register(AS2$Form) }
 
 class AS2$Form_membrecodir extends AS2$Form {
   override getDetail () { return [] }
 }
-nd++; Registry.register(AS2$Form_membrecodir)
+if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Form_membrecodir, AS2$Form, 'membrecodir') }
 
 class AS2$Form_membreredaction extends AS2$Form {
   override getDetail () { return [] }
 }
-nd++; Registry.register(AS2$Form_membreredaction)
+if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Form_membreredaction, AS2$Form, 'membreredaction') }
 
 class AS2$Form_auteur extends AS2$Form {
   override getDetail () { return [] }
@@ -77,7 +59,7 @@ class AS2$Form_auteur extends AS2$Form {
     return 0 
   }
 }
-nd++; Registry.register(AS2$Form_auteur)
+if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Form_auteur, AS2$Form, 'auteur') }
 
 class AS2$Form_coauteur extends AS2$Form {
   override getDetail () { return [] }
@@ -91,26 +73,39 @@ class AS2$Form_coauteur extends AS2$Form {
     return 0 
   }
 }
-nd++; Registry.register(AS2$Form_coauteur)
+if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Form_coauteur, AS2$Form, 'coauteur') }
 
 class AS2$Credential extends $Credential {
+  static _descriptor = d.AS2$Credential
 }
+if (!exc) { nd++; exc = Registry.register(AS2$Credential) }
 
 class AS2$Credential_CoDir extends AS2$Credential {
-  static manager = true
+  static _manager = true
 }
-nd++; Registry.register(AS2$Credential_CoDir)
+if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Credential_CoDir, AS2$Credential, 'CoDir') }
 
 class AS2$Credential_Redaction extends AS2$Credential {
-  static manager = true
+  static _manager = true
 }
-nd++; Registry.register(AS2$Credential_Redaction)
+if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Credential_Redaction, AS2$Credential, 'Redaction') }
 
 class AS2$Credential_Auteur extends AS2$Credential {
 }
-nd++; Registry.register(AS2$Credential_Auteur)
+if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Credential_Auteur, AS2$Credential, 'Auteur') }
+
+export class AS2$CoDir extends $Document {
+  static _descriptor = d.AS2$Codir
+}
+if (!exc) { nd++; exc = Registry.register(AS2$CoDir) }
+
+export class AS2$Redaction extends $Document {
+  static _descriptor = d.AS2$Redaction
+}
+if (!exc) { nd++; exc = Registry.register(AS2$Redaction) }
 
 export class AS2$Auteur extends $Document {
+  static _descriptor = d.AS2$Auteur
   static release = 0
   static userCredProps = new Set(['trig'])
 
@@ -139,4 +134,13 @@ export class AS2$Auteur extends $Document {
     return autid
   }
 }
-nd++; Registry.register(AS2$Auteur)
+if (!exc) { nd++; exc = Registry.register(AS2$Auteur) }
+
+export const AS2report = () : AppExc | undefined => {
+  if (!exc)
+    console.log(`AS2loading: ${nd} documents, ${nf} forms`)
+  else {
+    console.log(`AS2loading FAILED: ${exc.toString()}`)
+    return exc
+  }
+}

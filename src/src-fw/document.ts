@@ -34,19 +34,19 @@ export class $Document extends $ADocument {
   Retourne couple du data (ancien ou celui muté) 
   et de l'indicateur de mutation (false si inchangé)
   */
-  static mutate (clazz: string, data: any, options?: Object) : [any, boolean] {
-    const cl = Registry.getClass('', clazz, data) as any
-    if (!cl) return [data, false]
-    const f = cl['mutateCl']
+  // TOCHECK
+  static mutate (svc: string, docCl: string, data: any, options?: Object) : [any, boolean] {
+    const cl = Registry.getClassInfo(svc, docCl, data).clazz
+    const f = (cl as any)['mutateCl']
     return f ? f(data, options) : [data, false]
   }
 
   get _svc () { return this._clazz.substring(0, this._clazz.indexOf('$')) }
 
   // Numéro de release de la structure de la classe
+  // TOCHECK
   get classRelease() : number {
-    const cl = Registry.getClass('', this._clazz, this) as any
-    return cl ? cl['release'] : 0
+    return (this.constructor as any)['release']
   }
 
   // true si le Document est de la dernière release
