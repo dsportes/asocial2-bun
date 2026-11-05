@@ -9,7 +9,7 @@ import { AppExc, type StartEnd, DbConnector, STabstract } from './base'
 import { DBabstract, cloneRow } from './DBabstract'
 import type { row, srvStatus } from './DBabstract'
 import { updType } from './DBabstract'
-import { medCl, topCl } from './registry'
+import { Registry, ClassInfo } from './registry'
 import { DocDescriptor } from './docDescriptor'
 import { $Document, DocStatus } from './document'
 import { $Credential } from './documents'
@@ -33,30 +33,30 @@ type conso = {
 }
 
 class CacheItem {
-  clazz: string
+  classInfo: ClassInfo
   pk: string
-  // En cache globale: détention sous forme row (data décrypté mais sérialisé)
-  row: row
-  // En chache d'une opération: détention d'un Document (pas d'un row)
-  private doc?: $Document
+  row: row // En cache globale: détention sous forme row (data décrypté mais sérialisé)
+  
+  private doc?: $Document // En chache d'une opération: détention d'un Document (pas d'un row)
 
-  constructor (clazz: string, pk: string, row: row) {
-    this.clazz = clazz; this.pk = pk
+  constructor (classInfo: ClassInfo, pk: string, row: row) {
+    this.classInfo = classInfo
+    this.pk = pk
     this.row = row
   }
 
+  get cacheKey() { return this.classInfo.docKey(this.pk)}
+
   get hasDoc () : boolean { return this.doc !== undefined }
-  getDoc () : $Document { AppExc.assert(this.doc, 'doc')
+  getDoc () : $Document { 
+    AppExc.assert(this.doc, 'doc')
     // @ts-expect-error
-    return this.doc }
+    return this.doc 
+  }
   resetDoc () { delete this.doc }
 
   get status () : DocStatus {
     return !this.doc ? DocStatus.NONE : (this.doc._status || DocStatus.NONE)
-  }
-
-  static key (clazz: string, pk: string) { 
-    return clazz + '/' + pk 
   }
 
   /* Contruit une instance de "Document" depuis le row issu de lecture DB
@@ -536,7 +536,7 @@ export class AuthRecord {
   }
 }
 
-type cacheItem = {
+type CacheEntry = {
   lru: number // last recent use
   time: number // time lecture
   row: row
@@ -577,63 +577,62 @@ export class Cache {
   static LAZY_MS = 5000
 
   // Cache globale
-  static globCache: Map<string, Map<string, cacheItem>> = new Map()
+  static globCache: Map<string, Map<string, CacheEntry>> = new Map()
   static srvStatus: srvStatus | null = null
 
-  static orgCache(op: Operation) : Map<string, cacheItem> {
+  static orgCache(op: Operation) : Map<string, CacheEntry> {
     const org = op.org || (op.opName.startsWith('ADMIN') ? 'ADMIN$' :'')
     let oc = Cache.globCache.get(org)
     if (!oc) {
-      oc = new Map<string, cacheItem>()
+      oc = new Map<string, CacheEntry>()
       Cache.globCache.set(org, oc)
     }
     return oc
   }
 
-  /* Retourne le row  déjà en cache ou va le chercher en base et l'inscrit en cache.
+  /* Retourne le row déjà en cache ou va le chercher en base et l'inscrit en cache.
   Si le row actuellement en cache est le plus récent on a évité une lecture effective
    (ça s'est limité à un filtre sur index).
   Si le row n'était pas en cache ou que la version lue est plus récente : IL Y EST MIS:
   Certes la transaction peut échouer, mais au pire on a lu une version plus récente.
   - lazy: nombre de SECONDES d'ancienneté accepté pour une lecture non bloquante
   */
-  static async getRow(op: Operation, clazz: string, src: Object, lazy?: number)
+  static async getRow(op: Operation, docCl: string, src: Object, lazy?: number)
     : Promise<CacheItem | undefined> {
     if (!op.db) return undefined
-    const topClazz = topCl(op.svc, clazz)
-    const oc = Cache.orgCache(op)
+    const classInfo = Registry.getClassInfo(op.svc, docCl, src)
+    const pk = classInfo.pkValue(src)
+    const oc: Map<string, CacheEntry> = Cache.orgCache(op)
     const now = Date.now()
-    const pk = DocDescriptor.get(topClazz).pkValue(src)
-    const k = CacheItem.key(clazz, pk)
-    let item = oc.get(k)
+    const k = classInfo.docKey(pk)
+    let item = oc.get(k) as CacheEntry
     if (item && lazy && ((now - item.time) < (lazy * Cache.LAZY_MS))) {
       item.lru = now
-      return new CacheItem(topClazz, pk, cloneRow(item.row))
+      return new CacheItem(classInfo, pk, cloneRow(item.row))
     }
 
     if (item) { // trouvé en cache, lecture pour recherche d'un éventuel plus récent
       item.lru = now
-      const row = await op.db.oneRow(topClazz, pk, item.row.v)
+      const row = await op.db.oneRow(classInfo.dbName, pk, item.row.v)
       if (row && row.v > item.row.v) { // celui lu est plus récent
         item.row = row
         if (row.deleted) return undefined
       }
-      return new CacheItem(topClazz, pk, cloneRow(item.row))
+      return new CacheItem(classInfo, pk, cloneRow(item.row))
     }
 
     // Pas trouvé en cache - recherche en base
-    // @ts-expect-error
-    const row = await op.db.oneRow(topClazz, pk, item ? item.row.v : 0)
+    const row = await op.db.oneRow(classInfo.dbName, pk, 0)
     if (!row) return undefined // Pas trouvé en base
     // trouvé en base, mis en cache
     item = { lru: now, time: now, row } 
     oc.set(k, item)
-    return row.deleted ? undefined : new CacheItem(topClazz, pk, cloneRow(row))
+    return row.deleted ? undefined : new CacheItem(classInfo, pk, cloneRow(row))
   }
 
   static updateCache (op: Operation, ci: CacheItem) {
     const oc = Cache.orgCache(op)
-    const k = CacheItem.key(ci.clazz, ci.pk)
+    const k = ci.cacheKey
     let item = oc.get(k)
     if (ci.status === DocStatus.DEL) { // suppression
       if (item) {
@@ -716,17 +715,17 @@ export class Cache {
   Toutefois SI le document était déjà présent et plus récent, il est CONSERVE.
   Retourne le document.
   */
-  newDoc (clazz: string, src?: Object) : $Document {
-    const topClazz = topCl(this.op.svc, clazz)
-    const pk = DocDescriptor.get(topClazz).pkValue(src)
-    const k = CacheItem.key(clazz, pk)
+  newDoc (docCl: string, src?: Object) : $Document {
+    const classInfo = Registry.getClassInfo(this.op.svc, docCl, src)
+    const pk = classInfo.pkValue(src)
+    const k = classInfo.docKey(pk)
     let ci = this.docs.get(k)
     if (ci) return ci.getDoc()
     const dx = $Document.newDoc(clazz, DocStatus.NEW, src || {}) 
     AppExc.assert(dx, 'dx')
     dx._org = this.op.org
     // @ts-expect-error
-    ci = new CacheItem(clazz, pk, dx)
+    ci = new CacheItem(classInfo, pk, dx)
     this.docs.set(k, ci)
     return dx
   }
