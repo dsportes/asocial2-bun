@@ -13,19 +13,15 @@ import { Registry, $ADocument } from './registry'
 import { keyFromB64 } from './b64'
 import { MDandSafe  } from './mdandsafe'
 import type { SetCred } from './safeop'
-import type { SplitUndefined } from '@msgpack/msgpack/dist.esm/context'
 
 let nd = 0, exc: AppExc | undefined
 
 class ADMIN$Task extends $Document {
-  static _descriptor = d.ADMIN$Task
   static release = 0
 }
-nd++; exc = Registry.register(ADMIN$Task)
+nd++; exc = Registry.register(ADMIN$Task, d.ADMIN$Task)
 
 export class ADMIN$Status extends $Document {
-  static _descriptor = d.ADMIN$Status
-
   static release = 0
   svc: string = '' // service (pk)
   st: number = 0 // code 0: inconnu 1: UP 2: READ-ONLY 9: DOWN
@@ -37,7 +33,7 @@ export class ADMIN$Status extends $Document {
   isRW () { return this.st === 1 }
   isDOWN () { return this.st === 9 }
 }
-if (!exc) { nd++; exc = Registry.register(ADMIN$Status) }
+if (!exc) { nd++; exc = Registry.register(ADMIN$Status, d.ADMIN$Status) }
 
 export const FWreport = () : AppExc | undefined => {
   if (!exc)
@@ -208,7 +204,7 @@ export class $CredTempl {
   */
   async createCredential (op: Operation) : Promise<$Document | undefined> {
     const ec = this.toEmbedCred()
-    const d = Registry.getClassInfo(op.svc, this.docCl).descriptor
+    const d = Registry.getDescriptor(op.svc, this.docCl)
     if (d.embedCreds) {
       const doc = !op.cache ? undefined : await op.cache.getDoc(d.fullName, { pk: this.docPk })
       if (!doc) return undefined
@@ -247,8 +243,7 @@ export class $Credential extends $Document {
   cred?: Embed$Cred
   // En cache d'opération SEULEMENT sur détection de credential par authRecord
   embeddingDoc?: $Document
-  get dt () { return Registry.getClassInfo(this._svc, this.docCl).descriptor}
-  get isEmbed () { return this.dt.embedCreds }
+  get isEmbed () { return this.descriptor.embedCreds }
   get isValid () {
     const p = this.cred ? this.cred.props : undefined
     return p && (!p.limit || (p.limit * 60000) >= Date.now())
@@ -257,7 +252,7 @@ export class $Credential extends $Document {
   static async update (op: Operation, credId: string, docCl: string, 
     docPk: string, props: any): Promise<$Document | undefined> {
 
-    const dt = Registry.getClassInfo(op.svc, docCl).descriptor
+    const dt = Registry.getDescriptor(op.svc, docCl)
     let doc
     if (dt.embedCreds) {
       doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$' + docCl, { pk: docPk }) as $Document
@@ -277,7 +272,7 @@ export class $Credential extends $Document {
   // Liste les credentials attribuables par un administrateur seulement TOCHECK !!!
   static async listManagers (op: Operation) : Promise<$Cred[]> {
     const lst: $Cred[] = []
-    const sel: string[] | undefined = config.SERVICES.get(op.svc)
+    const sel: string[] | undefined = config.MANAGERS.get(op.svc)
     if (!sel) return lst
       
     if (op.db) await op.db.selectDocs(op.svc + '$Credential', 'doc', filter.IN, sel, '', 0, 
@@ -306,8 +301,8 @@ export class $Credential extends $Document {
   */
   static async listByDoc (op: Operation, docCl: string, src: any) : Promise<$Cred[]> {
     const lst: $Cred[] = []
-    let d: Descriptor
-    try { d = Registry.getClassInfo(op.svc, 'Credential').descriptor } catch(e) { return lst }
+    const d = Registry.getDescriptorNX(op.svc, 'Credential') 
+    if (!d) return lst
     const docPk = d.pkValue(src)
     const val = d.getIdx({ docCl, docPk }, 'doc')
 
@@ -337,8 +332,8 @@ export class $Credential extends $Document {
   */
   static async listByDocEmbed (op: Operation, docCl: string, src: Object) : Promise<$Cred[]> {
     const lst: $Cred[] = []
-    let d: Descriptor
-    try { d = Registry.getClassInfo(op.svc, 'Credential').descriptor } catch(e) { return lst }
+    const d = Registry.getDescriptor(op.svc, 'Credential')
+    if (!d) return lst
     const pk = d.pkValue(src)
     const doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$' + docCl, { pk })
     const creds: $Cred[] = doc && doc.embedCreds ? Array.from(doc.embedCreds.values()) : []
@@ -428,7 +423,7 @@ export class $Form extends $Document {
   toFormObj () : $FormObj {
     const obj: any = {}
     for (const p of $Form.lp1) obj[p] = (this as any)[p]
-    obj['svc'] = this._svc
+    obj['svc'] = this.descriptor.svc
     obj['org'] = this._org
     return obj as $FormObj
   }
@@ -444,7 +439,7 @@ export class $Form extends $Document {
   get isOld () { return this.maxLife && (Date.now() > this.maxLife * 60000) }
 
   get ft () : FormType | undefined { 
-    return FormType.get(this._svc, this.type) }
+    return FormType.get(this.descriptor.svc, this.type) }
   get kp () : { pub: Buffer | undefined, priv: Buffer | undefined } { 
     const x = !this.ft ? undefined : config.keys['DCKeys'][this.ft.key]
     return { pub: x ? keyFromB64(x.pub) : undefined, priv: x ? keyFromB64(x.priv) : undefined }

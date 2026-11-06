@@ -3,7 +3,7 @@ import Log from './src-fw/log'
 import type { BaseConfig } from './src-fw/types'
 import { DbConnector, STabstract } from './src-fw/base'
 
-const PROD = false // process.env.NODE_ENV === 'production' ???
+const PROD = process.env.NODE_ENV === 'production'
 const admin1 = 'VpOZWh0Zeh20Tk5C1BNi'
 const admin2 = 'Q8v99KlnO04zV41Z1MVx'
 
@@ -24,7 +24,7 @@ export default {
 
   serverOps: new Set(['op', 'safe', 'master']),
 
-  SERVICES: new Map([
+  MANAGERS: new Map([
     ['AS2', ['CoDir', 'Redaction']]
   ]),
 

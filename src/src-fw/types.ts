@@ -14,7 +14,7 @@ export type BaseConfig = {
   serverOps: Set<string> // Opérations supportées: 'op', 'safe', 'master'
 
   // Pour chaque service, liste de ses sous-classes "manager" de Credential
-  SERVICES: Map<string, string[]>
+  MANAGERS: Map<string, string[]>
   ADMINIDS: any,
   ADMINUSERS: Set<string>
   MASTERDIRADMINUSERS: Set<string>

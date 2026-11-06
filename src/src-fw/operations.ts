@@ -1,11 +1,11 @@
 import config from '../config'
 import Log from './log'
-import { Operation, Cache } from './operation'
+import { Operation } from './operation'
 import type { MDEventS } from './masterdir'
 import { AppExc } from './base'
 import { MDandSafe } from './mdandsafe'
 import { Registry } from './registry'
-import { DocDescriptor } from './docDescriptor'
+import { Descriptor } from './descriptor'
 import { ADMIN$Status, $Subs,  $Credential, 
   $Form, $CredTempl, $CredChecker } from './documents'
 import type { $SubsObj, $Cred, $FormObj} from './documents'
@@ -144,7 +144,7 @@ Registry.registerOp(ADMIN$getEnum)
 /* ADMIN$setEnum fixe la liste des valeurs d'une enumération
 */
 class ADMIN$setEnum extends Operation {
-  _enumName: string = ''
+  _enumName: string = '' // AS2/Section/doda 
   _value: string[] = []
   _enumCred: string = ''
 
@@ -152,14 +152,18 @@ class ADMIN$setEnum extends Operation {
     super.init()
     this._enumName = this.stringValue('enumName', true)
     this._value = this.stringArrayValue('value', true)
-    let i = this._enumName.indexOf('$')
+
+    let i = this._enumName.indexOf('/')
     let n = this._enumName.substring(i + 1)
-    // Ruse pour avoir une opération ADMIN avec des credentials d'un svc / org
-    this.svc = this._enumName.substring(0, i)
-    this.org = this.stringValue('org', true)
-    i = n.indexOf('_')
+    const svc = this._enumName.substring(0, i)
+    i = n.indexOf('/')
     const name = i === -1 ? n : n.substring(0, i)
-    const dd = DocDescriptor.get(this.svc + '$' + name)
+
+    // Ruse pour avoir une opération ADMIN avec des credentials d'un svc / org
+    this.svc = svc
+    this.org = this.stringValue('org', true)
+
+    const dd = Descriptor.getEnumDescriptor(svc, name)
     if (!dd)
       throw new AppExc(3, 'invalid_class_name', this, [name])
     this._enumCred = dd.enumCred || ''
@@ -315,7 +319,7 @@ class FW$setStatus extends Operation {
 }
 Registry.registerOp(FW$setStatus)
 
-/* FW$HasAlias retourne true s'il existe un document 
+/* FW$hasAlias retourne true s'il existe un document 
 de la classe docCl (SANS le préfixe svc$)
 dont l'index d'alias aliasName donné a la valeur donnée aliasValue.
 */
@@ -331,12 +335,12 @@ class FW$hasAlias extends Operation {
   }
 
   override async phase2 () {
-    const dd = DocDescriptor.get(this._docCl)
+    const dd = Registry.getDescriptor(this.svc, this._docCl)
     const testable = dd.isTestable(this._aliasName)
     if (!testable) this.setRes('hasalias', false)
     else {
       const doc = !this.db ? null : await this.db.oneRowByAlias(
-        this.svc + '$' + this._docCl, this._aliasName, this._aliasValue)
+        dd.dbName, this._aliasName, this._aliasValue)
       this.setRes('hasalias', doc !== null)
     }
   }
@@ -449,33 +453,34 @@ export class FW$Sync extends Operation {
     this.setRes('syncs', this.syncs)
   }
 
-  async sync0 (def: string, v: number, clazz: string) : Promise<void> {
-    if (!this.checker.check0(clazz)) this.syncs[def] = { v: -1 }
+  async sync0 (def: string, v: number, docCl: string) : Promise<void> {
+    if (!this.checker.check0(docCl)) this.syncs[def] = { v: -1 }
     else {
-      const dd = DocDescriptor.get(this.svc + '$' + clazz)
-      const vdatas = dd.virtual ? null : (!this.db ? null : await this.db.allRowsData(clazz, v))
+      const dd = Registry.getDescriptor(this.svc, docCl)
+      const vdatas = dd.virtual ? null : (!this.db ? null : await this.db.allRowsData(dd.dbName, v))
       this.syncs[def] = vdatas
     }
   }
 
-  async sync1 (def: string, v: number, clazz: string, pk: string) : Promise<void> {
-    if (!this.checker.check1(clazz, pk)) this.syncs[def] = { v: -1 }
+  async sync1 (def: string, v: number, docCl: string, pk: string) : Promise<void> {
+    const dd = Registry.getDescriptor(this.svc, docCl)
+    if (!this.checker.check1(docCl, pk)) this.syncs[def] = { v: -1 }
     else {
       let incr = v > 0
-      const row = !this.db ? null : await this.db.oneRow(this.svc + '$' + clazz, pk, v)
+      const row = !this.db ? null : await this.db.oneRow(dd.dbName, pk, v)
       this.syncs[def] =  row ? { incr, v: row.v, data: row.data } 
         : { incr, v: 0, data: [] }
     }
   }
 
-  async sync2 (def: string, v: number, clazz: string, colName: string, val: string) : Promise<void> {
-    const dd = DocDescriptor.get(this.svc + '$' + clazz)
-    if (dd.hasColls && dd.colls) {
+  async sync2 (def: string, v: number, docCl: string, colName: string, val: string) : Promise<void> {
+    const dd = Registry.getDescriptor(this.svc, docCl)
+    if (dd.colls) {
       const x = dd.colls.get(colName)
       if (x) {
         if (!this.checker.check2(x.class, val)) this.syncs[def] = { v: -1 }
         else {
-          const vdatas = !this.db ? null : await this.db.getColl(clazz, colName, val, x.list || false, v)
+          const vdatas = !this.db ? null : await this.db.getColl(dd.dbName, colName, val, x.list || false, v)
           this.syncs[def] = vdatas
         }
       }
@@ -556,7 +561,7 @@ class AutoRevokeCred extends Operation {
     const credRef = !this.authRecord ? undefined : this.authRecord.getCredRef(this._docCl, this._docPk, true)
     if (!credRef || credRef.cred.credId !== this._credId)
       throw new AppExc(103, 'no_cred_owner', this, [this.opName, this.args.svc || '', this.args.org || '?', this._docCl, this._docPk])
-    const dd = credRef.doc._descriptor
+    const dd = credRef.doc.descriptor
     if (dd.embedCreds) {
       const d = await this.cache.getDoc(this._docCl, { pk: this._docPk })
       const x = d ? d.embedCreds : undefined
@@ -599,9 +604,9 @@ class credsByDoc extends Operation {
   }
   override async phase2 () {
     this.requireAuth()
-    const classInfo = Registry.getClassInfo(this.svc, this._docCl, this._src)
+    const descriptor = Registry.getDescriptor(this.svc, this._docCl)
     let lst: $Cred[]
-    if (classInfo.descriptor.embedCreds)
+    if (descriptor.embedCreds)
       lst = await $Credential.listByDocEmbed(this, this._docCl, this._src)
     else
       lst = await $Credential.listByDoc(this, this._docCl, this._src)
@@ -1009,7 +1014,8 @@ class UpdateCredential extends Operation {
     this._props = this.objectValue('props', true)
   }
   override async phase2 () {
-    if (Registry.isManager(this.svc, this._docCl)) {
+    const mgrs = config.MANAGERS.get(this.svc)
+    if (mgrs && mgrs.indexOf(this._docCl) !== -1) {
       this.requireAdmin()
       const doc = await $Credential.update(this, this._credId, this._docCl, this._docPk, this._props)
       this.setRes('status', doc ? 0 : 1)

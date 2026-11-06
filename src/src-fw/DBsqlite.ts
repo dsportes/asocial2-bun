@@ -9,7 +9,8 @@ import type { filter, expList, expListQ,
   row, rowDB, rowQ, $CollData, Safe,
   MDuser, MDsetAA, MDsetS, MDdel, EventRow } from './DBabstract'
 import type { AbstractOperation, OperationWC } from './types'
-import { DocDescriptor, propType } from './docDescriptor'
+import { Descriptor, propType } from './descriptor'
+import { Registry } from './registry'
 import { Crypt } from './crypt'
 
 import path from 'path'
@@ -135,29 +136,30 @@ export class SQLiteConnector extends DbConnector {
   }
 
   static async genSchema () {
+    const all = Registry.allDescriptors()
     const l = []
     l.push(t1)
-    for (const [fn, dt] of DocDescriptor.all) {
+    for (const dt of all) {
       if (dt.virtual) continue
       l.push('')
-      const cl = fn.toUpperCase()
+      const cl = dt.dbName
       const adm = dt.svc === 'ADMIN'
 
       if (cl === "STATUS" && !adm)
         l.push(t7(dt.svc))
 
       l.push(adm ? t2b(cl) : t2(cl))
-      if (dt.hasColls && dt.colls) for (const [n, x] of dt.colls) l.push(t4(n, 'TEXT'))
-      if (dt.hasIndexes && dt.indexes) for (const [n, x] of dt.indexes) 
+      if (dt.colls) for (const [n, x] of dt.colls) l.push(t4(n, 'TEXT'))
+      if (dt.indexes) for (const [n, x] of dt.indexes) 
         l.push(t4(n, sqlTypes[x.type] || ''))
       l.push(adm ? t3b : t3)
       if (!adm) l.push(t5(cl, 'org'))
       l.push(t5(cl, 'v'))
       l.push(t5w(cl, 'ttl'))
-      if (dt.hasColls && dt.colls) for (const [n, x] of dt.colls) l.push(t5(cl, n))
-      if (dt.hasIndexes && dt.indexes) for (const [n, x] of dt.indexes) l.push(t5(cl, n))
+      if (dt.colls) for (const [n, x] of dt.colls) l.push(t5(cl, n))
+      if (dt.indexes) for (const [n, x] of dt.indexes) l.push(t5(cl, n))
 
-      if (dt.hasColls  && dt.colls) 
+      if (dt.colls) 
         for (const [n, c] of dt.colls) 
           if (c.mutable) l.push(adm ? t6b(cl, n) : t6(cl, n))
     }
@@ -166,12 +168,13 @@ export class SQLiteConnector extends DbConnector {
     Log.info(schemaPath + ' written') 
 
     l.length = 0
-    for (const [fn, dt] of DocDescriptor.all) {
+    for (const dt of all) {
+      if (dt.virtual) continue
       l.push('')
-      const cl = fn.toUpperCase()
+      const cl = dt.dbName
       l.push('DELETE FROM ' + cl + ';')
-      if (dt.hasColls && dt.colls) for (const [n, x] of dt.colls) 
-        l.push('DELETE FROM ' + cl + '@' + n + ';')
+      if (dt.colls) for (const [n] of dt.colls) 
+        l.push('DELETE FROM ' + cl + '@' + n.toUpperCase() + ';')
     }
     const td = l.join('\n')
     writeFileSync(path.resolve(schemaPathd), Buffer.from(td, 'utf8'))
@@ -205,12 +208,12 @@ export class SQLiteConnexion extends DBabstract {
     if (!e) {
       const lc: Set<string> = new Set()
       const ll: Set<string> = new Set()
-      const dt = DocDescriptor.get(topCl('', clazz))
-      if (dt.hasColls && dt.colls) for (const [n, x] of dt.colls) {
+      const dt = Registry.getDescriptorByDbName(clazz) as Descriptor
+      if (dt.colls) for (const [n, x] of dt.colls) {
         lc.add(n)
         if (x.list) ll.add(n)
       }
-      if (dt.hasIndexes && dt.indexes) for (const [n, x] of dt.indexes) {
+      if (dt.indexes) for (const [n, x] of dt.indexes) {
         lc.add(n)
         if (x.type === propType.LIST) ll.add(n)
       }

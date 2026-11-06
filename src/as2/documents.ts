@@ -18,24 +18,20 @@ if (!exc) { nf++; exc = FormType.register('AS2', 'auteur', 'AS2_auteurs', 'k2', 
 if (!exc) { nf++; exc = FormType.register('AS2', 'coauteur', 'AS2_auteurs', 'k2', ['Redaction/1', 'Auteur/$1']) }
 
 class AS2$Status extends ADMIN$Status { 
-  static override _descriptor = d.AS2$Status
 }
-if (!exc) { nd++; exc = Registry.register(AS2$Status) }
+if (!exc) { nd++; exc = Registry.register(AS2$Status, d.AS2$Status) }
 
 class AS2$Subs extends $Subs { 
-  static _descriptor = d.AS2$Subs
 }
-if (!exc) { nd++; exc = Registry.register(AS2$Subs) }
+if (!exc) { nd++; exc = Registry.register(AS2$Subs, d.AS2$Subs) }
 
 class AS2$CredChecker extends $CredChecker {
-  static _descriptor = d.AS2$CredChecker
 }
-if (!exc) { nd++; Registry.register(AS2$CredChecker) }
+if (!exc) { nd++; Registry.register(AS2$CredChecker, d.AS2$CredChecker) }
 
 class AS2$Form extends $Form {
-  static _descriptor = d.AS2$Form
 }
-if (!exc) { nd++; exc = Registry.register(AS2$Form) }
+if (!exc) { nd++; exc = Registry.register(AS2$Form, d.AS2$Form) }
 
 class AS2$Form_membrecodir extends AS2$Form {
   override getDetail () { return [] }
@@ -80,9 +76,8 @@ class AS2$Form_coauteur extends AS2$Form {
 if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Form_coauteur, AS2$Form, 'coauteur') }
 
 class AS2$Credential extends $Credential {
-  static _descriptor = d.AS2$Credential
 }
-if (!exc) { nd++; exc = Registry.register(AS2$Credential) }
+if (!exc) { nd++; exc = Registry.register(AS2$Credential, d.AS2$Credential) }
 
 class AS2$Credential_CoDir extends AS2$Credential { }
 if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Credential_CoDir, AS2$Credential, 'CoDir') }
@@ -94,25 +89,23 @@ class AS2$Credential_Auteur extends AS2$Credential { }
 if (!exc) { nd++; exc = Registry.registerSubClass(AS2$Credential_Auteur, AS2$Credential, 'Auteur') }
 
 export class AS2$CoDir extends $Document {
-  static _descriptor = d.AS2$Codir
 }
-if (!exc) { nd++; exc = Registry.register(AS2$CoDir) }
+if (!exc) { nd++; exc = Registry.register(AS2$CoDir, d.AS2$Codir) }
 
 export class AS2$Redaction extends $Document {
-  static _descriptor = d.AS2$Redaction
 }
-if (!exc) { nd++; exc = Registry.register(AS2$Redaction) }
+if (!exc) { nd++; exc = Registry.register(AS2$Redaction, d.AS2$Redaction) }
 
 export class AS2$Auteur extends $Document {
-  static _descriptor = d.AS2$Auteur
+
   static release = 0
   static userCredProps = new Set(['trig'])
 
   nomAuteur: string = ''
   section: string = ''
 
-  static mutateCl (data: object, options?: Object) : [Object, boolean] {
-    return [data, false]
+  static override async mutate (data: any) : Promise<any> {
+    return undefined // return newData
   }
 
   override async compile () { }
@@ -133,7 +126,7 @@ export class AS2$Auteur extends $Document {
     return autid
   }
 }
-if (!exc) { nd++; exc = Registry.register(AS2$Auteur) }
+if (!exc) { nd++; exc = Registry.register(AS2$Auteur, d.AS2$Auteur) }
 
 export const AS2report = () : AppExc | undefined => {
   if (!exc)

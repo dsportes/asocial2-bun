@@ -6,8 +6,7 @@ import { setup } from '../setup'
 import type { AbstractOperation } from './types'
 import type { expList, expListQ } from './DBabstract'
 import { testECDH /*, testSH */ } from './crypt'
-import { Registry, topCl } from './registry'
-import { DocDescriptor } from './docDescriptor'
+import { Registry } from './registry'
 
 import { parseArgs } from 'node:util'
 import { stdin, stdout } from 'node:process'
@@ -208,42 +207,44 @@ export class Tools {
     const resp = await this.prompt('Export / Import DB\nValider (o/N) ?')
     if (resp !== 'o' && resp !== 'O') throw 'Exécution interrompue.'
 
-    if (this.cnxIn && this.cnxOut) for(const clazz of Registry.allClasses()) {
-      const dt = DocDescriptor.get(topCl('', clazz))
-      this.log2('Class ' + clazz)
-      let mark = '1'
-      let n = 0
-      let fin = false
-      while (!fin) {
-        const {rows, eox, lastMark} = await this.cnxIn.exportRows(clazz, mark, 10) as expList
-        if (rows.length) {
-          n += rows.length
-          if (!this.simu) await this.cnxOut.importRows(clazz, rows)
-        }
-        fin = eox
-        mark = lastMark
-        this.log2('Class ' + clazz + ' - exported rows:' + n)
-      }
-      this.log('')
-      nbr += n
-      if (dt.hasColls && dt.colls) for(const [colName, ] of dt.colls) {
-        this.log2('Class ' + clazz + '@' + colName)
+    if (this.cnxIn && this.cnxOut) 
+      for(const dt of Registry.allDescriptors()) {
+        const dbName = dt.dbName
+        this.log2('Class ' + dbName)
         let mark = '1'
         let n = 0
         let fin = false
         while (!fin) {
-          const {rows, eox, lastMark} = await this.cnxIn.exportRowsQ(clazz, colName, mark, 10) as expListQ
+          const {rows, eox, lastMark} = await this.cnxIn.exportRows(dbName, mark, 10) as expList
           if (rows.length) {
             n += rows.length
-            if (!this.simu) await this.cnxOut.importRowsQ(clazz, colName, rows)
+            if (!this.simu) await this.cnxOut.importRows(dbName, rows)
           }
           fin = eox
           mark = lastMark
-          this.log2('Class ' + clazz + '@' + colName + ' - exported rows:' + n)
+          this.log2('Class ' + dbName + ' - exported rows:' + n)
         }
-        nbrq += n
+        this.log('')
+        nbr += n
+        if (dt.colls) for(const [cn, ] of dt.colls) {
+          const colName = cn.toUpperCase()
+          this.log2('Class ' + dbName + '@' + colName)
+          let mark = '1'
+          let n = 0
+          let fin = false
+          while (!fin) {
+            const {rows, eox, lastMark} = await this.cnxIn.exportRowsQ(dbName, colName, mark, 10) as expListQ
+            if (rows.length) {
+              n += rows.length
+              if (!this.simu) await this.cnxOut.importRowsQ(dbName, colName, rows)
+            }
+            fin = eox
+            mark = lastMark
+            this.log2('Class ' + dbName + '@' + colName + ' - exported rows:' + n)
+          }
+          nbrq += n
+        }
       }
-    }
     const t = Date.now() - st
     this.log('\n============== Export / import completed in ' + t + 'ms - ' + nbr + ' rows - ' + nbrq + ' rowsQ')
   }

@@ -3,7 +3,6 @@ import { encode, decode } from '@msgpack/msgpack'
 import config from '../config'
 import adminAlert from './adminAlert'
 import Log from './log'
-import { ClassInfo } from './registry'
 import { Descriptor } from './descriptor'
 import type { AbstractOperation } from './types'
 
@@ -55,7 +54,7 @@ export class AppExc {
   constructor (code: number, label: string, op: any, args?: string[], stack?: string) {
     this.label = label
     this.code = code
-    this.opName = op ? (op.opName || '') : ''
+    this.opName = typeof op === 'string' ? op : (op.opName || '')
     this.org = op && op['org'] ? op['org'] : ''
     this.args = args || []
     this.stack = stack || ''
@@ -82,23 +81,14 @@ export class AppExc {
   toString () { return this.message + (this.stack ? '\n' + this.stack : '')}
 }
 
-export class $ADocument {
-  static _classInfo: ClassInfo
-  get _descriptor () : Descriptor | undefined { 
-    return (this.constructor as any)['_docDescriptor'] 
-  }
+export function assertKO (src: string, op: any, args: string[]) {
+  const x = args && args.length ? JSON.stringify(args) : ''
+  const msg = `ASSERT : ${src} - ${x} - 105`
+  const t = new Date().toISOString()
+  Log.error(msg)
+  if (args) args.unshift(src)
+  throw new AppExc(105, 'unexpected_null_object', op || '?', args)
 }
-
-/*
-export abstract class DbGeneric {
-  org?: string
-  async getConnexion (op: AbstractOperation, org?: string, cryptKey?: string) : Promise<DbConnexion | null> {
-    return null
-  }
-  async connect () : Promise<void> {
-  }
-}
-*/
 
 export abstract class DbConnector {
 

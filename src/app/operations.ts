@@ -39,7 +39,7 @@ class AuteurDeId extends Operation {
   }
   override async phase2 () {
     this.requireAuth()
-    const pk = AS2$Auteur._descriptor.pkValue(this.src)
+    const pk = AS2$Auteur.descriptor.pkValue(this.src)
     this.getCredRef('Auteur', pk)
     const aut = await this.cache.getDoc('Auteur', this.src)
     this.setRes('auteur', aut || null)
@@ -91,7 +91,7 @@ class ListeAuteursSection extends Operation {
     this.requireAuth()
     const ml = Math.floor(this.now / 60000)
     const c = this.getCredRef('Redaction', '1')
-    const dd = AS2$Auteur._descriptor
+    const dd = AS2$Auteur.descriptor
     const v = dd.getCollId( { section: this._section }, 'section')
     const vx = v && v.length ? v[0] : ''
     const lst: any[] = []   

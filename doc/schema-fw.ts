@@ -1,6 +1,6 @@
-import Log from './log'
-import type { idx } from './docDescriptor'
-import { DocDescriptor, FormType, propType } from './docDescriptor'
+import Log from '../src/src-fw/log'
+import type { idx } from '../src/src-fw/docDescriptor'
+import { DocDescriptor, FormType, propType } from '../src/src-fw/docDescriptor'
 
 let exc: Error | null = null
 

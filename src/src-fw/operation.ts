@@ -1,15 +1,15 @@
 // @ts-ignore
-import { encode, decode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 
 import type { OperationWC } from './types'
 import { MDandSafe } from './mdandsafe'
 import config from '../config'
 import Log from './log'
-import { AppExc, type StartEnd, DbConnector, STabstract } from './base'
+import { AppExc, assertKO, type StartEnd, DbConnector, STabstract } from './base'
 import { DBabstract, cloneRow } from './DBabstract'
 import type { row, srvStatus } from './DBabstract'
 import { updType } from './DBabstract'
-import { Registry, ClassInfo } from './registry'
+import { Registry } from './registry'
 import { Descriptor } from './descriptor'
 import { $Document, DocStatus } from './document'
 import { $Credential } from './documents'
@@ -37,49 +37,24 @@ class CacheItem {
     return svc + '/' + docCl + '/' + pk
   }
 
-  classInfo: ClassInfo
+  descriptor: Descriptor
   pk: string
   row: row // En cache globale: détention sous forme row (data décrypté mais sérialisé)
   doc?: $Document // En cache d'une opération: détention d'un Document (pas d'un row)
 
-  constructor (classInfo: ClassInfo, pk: string, row: row) {
-    this.classInfo = classInfo
+  constructor (descriptor: Descriptor, pk: string, row: row) {
+    this.descriptor = descriptor
     this.pk = pk
     this.row = row
   }
 
-  get cacheKey() { return this.classInfo.cacheKey(this.pk)}
+  get cacheKey() { return this.descriptor.fullName + '/' + this.pk}
 
   get hasDoc () : boolean { return this.doc !== undefined }
-
-  /*
-  async getDoc () : Promise<$Document> { 
-    if (this.doc) return this.doc
-    const { doc, row } = await $Document.rowToDoc ( this.classInfo.svc, this.classInfo.docCl, this.row)
-    this.doc = doc
-    this.row = row
-    return this.doc
-  }
-  resetDoc () { delete this.doc }
-  */
 
   get status () : DocStatus {
     return !this.doc ? DocStatus.NONE : (this.doc._status || DocStatus.NONE)
   }
-
-  /* Contruit une instance de "Document" depuis le row issu de lecture DB
-  Retourne le document compilé
-  */
-  initDoc () : void {
-    const rdata = this.row.data
-    AppExc.assert(rdata, 'data')
-    // @ts-expect-error
-    const d = decode(rdata)
-    const [data, b] = this.classInfo.mutate(d)
-    this.doc = $Document.newDoc(this.classInfo, DocStatus.NONE, data)
-    this.doc._org = this.row._org || ''
-  }
-
 }
 
 export class Operation implements OperationWC {
@@ -129,15 +104,6 @@ export class Operation implements OperationWC {
 
   get SUBSSHORTMAXLIFE() { return Math.floor(this.now / 60000) + (config.SUBSMAXLIFEINMINUTES[0] || 3 * 24 * 60) }
   get SUBSLONGMAXLIFE() { return Math.floor(this.now / 60000) + (config.SUBSMAXLIFEINMINUTES[1] || 1 * 24 * 60) }
-
-  assertKO (src: string, args: string[]) {
-    const x = args && args.length ? JSON.stringify(args) : ''
-    const msg = `ASSERT : ${src} - ${x} - 105`
-    const t = new Date().toISOString()
-    Log.error(msg)
-    if (args) args.unshift(src)
-    return new AppExc(105, 'unexpected_null_object', this, args)
-  }
 
   trace (src: string, id: string, info: string, err: boolean) {
     const msg = `${src} - ${id} - ${info}`
@@ -386,9 +352,9 @@ export class CredRef {
     this.isEmbed = isEmbed
     this.cred = {
       credId: ec.credId,
-      svc: doc._svc,
+      svc: doc.descriptor.svc,
       org: doc._org,
-      docCl: isEmbed ? this.doc._docCl : (this.doc as any)['docCl'],
+      docCl: isEmbed ? this.doc.descriptor.docCl : (this.doc as any)['docCl'],
       docPk: this.doc.myPk,
       props: ec.props,
       pubv: ec.pubv,
@@ -498,7 +464,8 @@ export class AuthRecord {
       const i = ref.indexOf('/')
       const docCl = i === -1 ? ref : ref.substring(0, i)
       const docPk = i === -1 ? '' : ref.substring(i + 1)
-      const dt = Registry.getClassInfo(this.op.svc, docCl).descriptor
+      const dt = Registry.getDescriptorNX(this.op.svc, docCl)
+      if (!dt) continue
       let credRef: CredRef | undefined
       if (dt.embedCreds) { // Recherche du Credential dans le creds du document
         const d = !this.op.cache ? null : await this.op.cache.getDoc(docCl, { pk: docPk }) as $Document
@@ -602,34 +569,35 @@ export class Cache {
   static async getRow(op: Operation, docCl: string, src: Object, lazy?: number)
     : Promise<CacheItem | undefined> {
     if (!op.db) return undefined
-    const classInfo = Registry.getClassInfo(op.svc, docCl, src)
-    const pk = classInfo.pkValue(src)
+    const descriptor = Registry.getDescriptorNX(op.svc, docCl)
+    if (!descriptor) return undefined
+    const pk = descriptor.pkValue(src)
     const oc: Map<string, CacheEntry> = Cache.orgCache(op)
     const now = Date.now()
-    const k = classInfo.cacheKey(pk)
+    const k = descriptor.fullName + '/' + pk
     let item = oc.get(k) as CacheEntry
     if (item && lazy && ((now - item.time) < (lazy * Cache.LAZY_MS))) {
       item.lru = now
-      return new CacheItem(classInfo, pk, cloneRow(item.row))
+      return new CacheItem(descriptor, pk, cloneRow(item.row))
     }
 
     if (item) { // trouvé en cache, lecture pour recherche d'un éventuel plus récent
       item.lru = now
-      const row = await op.db.oneRow(classInfo.dbName, pk, item.row.v)
+      const row = await op.db.oneRow(descriptor.dbName, pk, item.row.v)
       if (row && row.v > item.row.v) { // celui lu est plus récent
         item.row = row
         if (row.deleted) return undefined
       }
-      return new CacheItem(classInfo, pk, cloneRow(item.row))
+      return new CacheItem(descriptor, pk, cloneRow(item.row))
     }
 
     // Pas trouvé en cache - recherche en base
-    const row = await op.db.oneRow(classInfo.dbName, pk, 0)
+    const row = await op.db.oneRow(descriptor.dbName, pk, 0)
     if (!row) return undefined // Pas trouvé en base
     // trouvé en base, mis en cache
     item = { lru: now, time: now, row } 
     oc.set(k, item)
-    return row.deleted ? undefined : new CacheItem(classInfo, pk, cloneRow(row))
+    return row.deleted ? undefined : new CacheItem(descriptor, pk, cloneRow(row))
   }
 
   static updateCache (op: Operation, ci: CacheItem) {
@@ -644,7 +612,7 @@ export class Cache {
           deleted: true, 
           v: op.now, 
           _pk: item.row.pk, 
-          _clazz: ci.classInfo.docCl 
+          _clazz: ci.descriptor.docCl 
         })
       }
     } else {
@@ -692,57 +660,69 @@ export class Cache {
   - il est compilé.
   */
   async getDoc (docCl: string, src?: any, lazy?: number, assert?: string) : Promise<$Document | undefined> {
-    const classInfo = Registry.getClassInfo(this.op.svc, docCl, src)
-    const pk = classInfo.pkValue(src)
-    const k = classInfo.cacheKey(pk)
+    const descriptor = Registry.getDescriptorNX(this.op.svc, docCl)
+    if (!descriptor) {
+      if (assert) assertKO(assert, 'getDoc', [this.op.svc, docCl])
+      return undefined
+    }
+    const pk = descriptor.pkValue(src)
+    const k = descriptor.fullName + '/' + pk
     let ci = this.docs.get(k)
     if (ci) return ci.doc
     
     ci = await Cache.getRow(this.op, docCl, src, lazy || 0)
     if (!ci) {
-      if (assert) this.op.assertKO(assert, [docCl, pk])
+      if (assert) assertKO(assert, 'getDoc', [this.op.svc, docCl, pk])
       return undefined
     }
-    const { doc, row } = await $Document.rowToDoc(ci.classInfo, ci.row)
+    const { doc, row } = await $Document.rowToDoc(ci.descriptor, ci.row)
     if (!doc) {
       if (!assert) return undefined
-      throw this.op.assertKO(assert, [docCl, k])
+      throw assertKO(assert, 'getDoc', [this.op.svc, docCl, k])
     }
+    doc._status = DocStatus.NONE
+    doc.setBefore()
     ci.row = row
     this.docs.set(k, ci)
     return doc
   }
 
   /* Met en cache un objet issu de la lecture en mode "report" de la DB.
+  CE N'EST PAS un "row".
   Si le document était déjà présent et plus récent, il est CONSERVE.
   Retourne le document (muté et compilé).
-  Si newDoc, le status est NEW, sinon il NONE (éxistait déjà) 
+  Si newDoc, le status est NEW, sinon c'est NONE (éxistait déjà).
   */
   async putDoc (docCl: string, data: any, newDoc: boolean, assert?: string) 
   : Promise<$Document | undefined> {
     let pk: string = '?'
+    let descriptor: Descriptor
     try {
-      const classInfo = Registry.getClassInfo(this.op.svc, docCl, data)
-      pk = classInfo.pkValue(data)
-      const doc = await $Document.newDocument(classInfo, data) as $Document
+      const doc = await $Document.newDocument(this.op.svc, docCl, data) as $Document
+      const descriptor = doc.descriptor
       if (!doc) {
         if (!assert) return undefined
-        throw this.op.assertKO(assert, [docCl, pk])
+        throw assertKO(assert, 'putDoc', [this.op.svc, docCl, pk])
       }
-      const k = CacheItem.cacheKey(this.op.svc, docCl, pk)
+
+      pk = descriptor.pkValue(data)
+      const k = descriptor.fullName + '/' + pk
       let ci = this.docs.get(k)
       if (ci && ci.doc && ci.doc.v >= doc.v) return ci.doc
 
       doc._status = newDoc ? DocStatus.NEW : DocStatus.NONE
+      if (!newDoc) doc.setBefore()
       const row = doc.toRow()
-      if (!ci) ci = new CacheItem(classInfo, pk, row)
-      else ci.row = row
+      if (!ci) {
+        ci = new CacheItem(descriptor, pk, row)
+        this.docs.set(k, ci)
+      }
+      ci.row = row
       ci.doc = doc
-      this.docs.set(k, ci)
       return doc
     } catch (e) { 
       if (!assert) return undefined
-      throw this.op.assertKO(assert, [docCl, pk])
+      assertKO(assert, 'putDoc', [this.op.svc, docCl, pk])
     }
   }
 
@@ -774,24 +754,24 @@ export class Cache {
     this.op.updates = []
     for (const [k, ci] of this.docs) {
       if (ci.status === DocStatus.NONE) continue
-      const d: Descriptor = ci.classInfo.descriptor
-      const dbName = ci.classInfo.dbName
+      const d: Descriptor = ci.descriptor
       // @ts-expect-error
       const doc: $Document = ci.doc
       ci.row = doc._status === DocStatus.UPD || doc._status === DocStatus.NEW ?
         doc.toRow(this.op.now) : doc.toZombiRow(this.op.now)
       this.op.updates.push(ci)
       if (doc._status === DocStatus.UPD)
-        db.writeRow(updType.UPDATE, dbName, ci.row)
+        db.writeRow(updType.UPDATE, d.dbName, ci.row)
       else if (doc._status === DocStatus.NEW)
-        db.writeRow(updType.CREATE, dbName, ci.row)
+        db.writeRow(updType.CREATE, d.dbName, ci.row)
       else { // DocStatus.DEL
-        if (d.sync) db.writeRow(updType.UPDATE, dbName, ci.row)
-        else db.deleteRow(dbName, ci.pk)
+        if (d.sync) db.writeRow(updType.UPDATE, d.dbName, ci.row)
+        else db.deleteRow(d.dbName, ci.pk)
       }
       if (d.sync && d.colls) {
-        const is = this.op.impactedSubs.getEntry(dbName, ci.pk)
-        if (ci.row) this.manageColls(db, dbName, doc, ci.row, d, is)
+        const is = this.op.impactedSubs.getEntry(d.dbName, ci.pk)
+        if (ci.row && d.colls) 
+          this.manageColls(db, doc, ci.row, d, is)
       }
     }
     this.op.hasUpdates = this.op.updates.length !== 0
@@ -801,7 +781,7 @@ export class Cache {
     - inscription dans impactedSubs
     - création des rowQ : trace des disparitions des collections "mutables"
   */
-  manageColls (db: DBabstract, dbName: string, doc: $Document, row: row, d: Descriptor, is: ImpactedSub) {
+  manageColls (db: DBabstract, doc: $Document, row: row, d: Descriptor, is: ImpactedSub) {
 
     if (d.colls) for (const [n, collection] of d.colls) {
     
@@ -824,8 +804,8 @@ export class Cache {
 
       if (doc._status === DocStatus.DEL) { 
         // le ou les termes "before" quittent le ou les (list) documents
-        if (collection.list) for (const x of b) db.writeRowQ(dbName, n, row.pk, row.v, x)
-        else db.writeRowQ(dbName, n, row.pk, row.v, b[0] || '')
+        if (collection.list) for (const x of b) db.writeRowQ(d.dbName, n, row.pk, row.v, x)
+        else db.writeRowQ(d.dbName, n, row.pk, row.v, b[0] || '')
         continue
       }
 
@@ -835,9 +815,9 @@ export class Cache {
       if (collection.list) {
         const as = a ? new Set(a) : new Set()
         for (const x of b) 
-          if (!as.has(x)) db.writeRowQ(dbName, n, row.pk, row.v, x)
+          if (!as.has(x)) db.writeRowQ(d.dbName, n, row.pk, row.v, x)
       } else if (a && (a[0] !== b[0])) 
-        db.writeRowQ(dbName, n, row.pk, row.v, b[0] || '')
+        db.writeRowQ(d.dbName, n, row.pk, row.v, b[0] || '')
     }
   }
 } 

@@ -1,7 +1,8 @@
 import { encode, decode } from '@msgpack/msgpack'
 
 import type { row } from './DBabstract'
-import { Registry, ClassInfo, $ADocument } from './registry'
+import { Descriptor } from './descriptor'
+import { Registry, $ADocument } from './registry'
 import { $CredTempl } from './documents'
 
 export enum DocStatus { NONE, UPD, NEW, DEL }
@@ -21,15 +22,13 @@ export class $Document extends $ADocument {
   /* Mute un data en fonction de sa release et d'éventuelles options
   Met à jour, supprime ajoute les propriétés requises dans la
   dernière version en fonction de sa release actuell.
-  Retourne couple du data (ancien ou celui muté) 
+  Retourne le nouveau data muté.
+  RETOURNE undefined SI AUCUNE MUTATION N'A ETE NECESSAIRE
   et de l'indicateur de mutation (false si inchangé)
-  
-  static mutate (svc: string, docCl: string, data: any, options?: Object) : [any, boolean] {
-    const cl = Registry.getClassInfo(svc, docCl, data).clazz
-    const f = (cl as any)['mutateCl']
-    return f ? f(data, options) : [data, false]
-  }
   */
+  static async mutate (data: any) : Promise<any> {
+    return undefined
+  }
 
   // Numéro de release de la structure de la classe
   get classRelease() : number {
@@ -42,10 +41,10 @@ export class $Document extends $ADocument {
   }
 
   // Retourne la VALEUR HASH de pk (séparation par / PUIS hash)
-  get myPk () : string { return this._descriptor.pkValue(this)}
+  get myPk () : string { return this.descriptor.pkValue(this)}
 
   // Retourne la VALEUR NON HACHEE de pk (séparation par /)
-  get myPkNH () : string { return this._descriptor.pkValue(this, true)}
+  get myPkNH () : string { return this.descriptor.pkValue(this, true)}
 
   // Retourne true si le document n'est pas _zombi_ et n'a pas dépassé sa maxLife
   isAlive (now: number) : boolean {
@@ -61,7 +60,7 @@ export class $Document extends $ADocument {
   C'est un STRING[] des valeurs hachées.
   Quand la propriété de collection N'EST PAS une liste, sa valeur est [0]
   */
-  collValue (name: string) : string[] { return this._descriptor.getCollId(this, name)}
+  collValue (name: string) : string[] { return this.descriptor.getCollId(this, name)}
 
   /* Retourne la VALEUR la propriété d'index nommée name:
   Selon le type de cette propriété c'est:
@@ -69,7 +68,7 @@ export class $Document extends $ADocument {
   - number : pour les types INTEGER FLOAT
   - string[] : pour le type LIST
   */
-  idxValue (name: string) : any { return this._descriptor.getIdx(this, name)}
+  idxValue (name: string) : any { return this.descriptor.getIdx(this, name)}
 
   /* Invoqué après lecture de DB, désérialisation du data et création
   du Document associé. Traitement éventuel, pour génération de propriétés
@@ -100,32 +99,9 @@ export class $Document extends $ADocument {
     if (credTemplates) 
       for(let credId in credTemplates) {
         const c = new $CredTempl((credTemplates as any)[credId])
-        if (this._docCl === c.docCl && this.myPk === c.docPk)
+        if (this.descriptor.docCl === c.docCl && this.myPk === c.docPk)
           (this.embedCreds as any)[credId] = c.toEmbedCred()
       }
-  }
-
-  /* Création de l'instance de "Document" depuis des valeurs initiales de propriétés,
-  - row lu de la DB
-  - propriétés de création.
-  Retourne le Document.
-  */
-  static newDoc (classInfo: ClassInfo, status: DocStatus, initVals: Object) : $Document {
-    const doc = classInfo.newD() as $Document
-    doc._status = status
-    doc.release = (doc.constructor as any)['release']
-    doc.v = 0
-    for (const [key, value] of Object.entries(initVals)) 
-      if (!key.startsWith('_')) (doc as any)[key] = value
-    doc.compile()
-    /* _before: Map: traçant les collections
-      - clé: nom de la collection
-      - valeur: valeur de la propriété clé de la collection dans le document 
-        AVANT mise à jour éventuelle de cette valeur
-    */
-    if (doc._status !== DocStatus.NEW && classInfo.descriptor.colls)
-      doc._before = classInfo.descriptor.extractColls(doc)
-    return doc
   }
 
   /* Construit un $Document et son row depuis un row.
@@ -133,39 +109,43 @@ export class $Document extends $ADocument {
     - le row d'entrée a si nécessaire été muté dans la dernière release
     - le document est compilé
   */
-  static async rowToDoc (classInfo: ClassInfo, _row: row)
+  static async rowToDoc (descriptor: Descriptor, _row: row)
     : Promise<{ doc: $Document | undefined, row: row }> {
     let row = _row
     let doc: $Document | undefined = undefined
     if (row.data)
       try {
-        const m = (classInfo.clazz as any)['mutateCl']
+        const m = (descriptor.clazz as any)['mutate']
         let data = decode(row.data)
-        if (m) data = await m(data)
-        doc = await $Document.newDocument(classInfo, data)
+        const mutated = await m(data)
+        doc = await $Document.newDocument(descriptor.svc, descriptor.docCl, mutated || data)
         if (doc) {
           if (_row._org) doc._org = _row._org 
-          row = doc.toRow()
+          if (mutated) row = doc.toRow()
         }
       } catch (e) { }
     return { doc, row }
   }
 
   // Construit un document depuis un objet de propriétés
-  static async newDocument (classInfo: ClassInfo, data: any) 
+  static async newDocument (svc: string, docCl: string, data: any) 
   : Promise<$Document | undefined> {
     try {
-      const doc = classInfo.newD() as $Document
-      doc.release = (doc.constructor as any)['release']
+      const doc = Registry.newD(svc, docCl, data) as $Document
+      if (!doc.release)
+        doc.release = (doc.constructor as any)['release'] || 0
       doc.v = data.v || 0
       for (const [key, value] of Object.entries(data)) 
         if (!key.startsWith('_')) (doc as any)[key] = value
       await doc.compile()
-      doc._status !== DocStatus.NEW
       return doc
     } catch (e) {
       return undefined
     }
+  }
+
+  setBefore () {
+    this._before = this.descriptor.extractColls(this)
   }
 
   /* Construit un "row" pour DB depuis un document - data encodé pas crypté */
@@ -178,7 +158,7 @@ export class $Document extends $ADocument {
     const x = encode(d)
     const row: row = { v, pk: this.myPk, data: x }
     const ml = this['maxLife']; if (ml) row.maxLife = ml
-    const dt = this._descriptor
+    const dt = this.descriptor
     if (dt.colls) for (const [n, c] of dt.colls) 
       (row as any)[n] = c.list ? this.collValue(n) : this.collValue(n)[0]
     if (dt.indexes) for (const [n, ] of dt.indexes) 

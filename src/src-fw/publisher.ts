@@ -127,15 +127,15 @@ export class Publisher implements AbstractOperation {
   */
   async publish (is: ImpactedSub) {
     // Souscriptions à la collection des documents
-    await this.doSids($Subs.def0(is.clazz))
+    await this.doSids($Subs.def0(is.docCl))
 
     // Souscriptions au document
-    await this.doSids($Subs.def1(is.clazz, is.pk))
+    await this.doSids($Subs.def1(is.docCl, is.pk))
 
     // Souscriptions aux sous-collections
     for(const [colName, values] of is.colls) {
       for (const colValue of values) 
-        await this.doSids($Subs.def2(is.clazz, colName, colValue))
+        await this.doSids($Subs.def2(is.docCl, colName, colValue))
     }
   }
 
