@@ -48,7 +48,10 @@ class ADMIN$getStatus extends Operation {
     this._svc = this.stringValue('svc', true)
   }
   override async phase2 () {
-    const doc = await this.cache.getDoc('ADMIN$Status', { svc: this._svc }) as ADMIN$Status | undefined
+    const _svc = this.svc
+    this.svc = 'ADMIN'
+    const doc = await this.cache.getDoc('Status', { svc: this._svc }) as ADMIN$Status | undefined
+    this.svc = _svc
     if (!doc) this.setRes('status', { st: 0, at: 0, txt: '' })
     else this.setRes('status', { st: doc.st, at: doc.at, txt: doc.txt})
   }
@@ -71,9 +74,12 @@ class ADMIN$setStatus extends Operation {
   }
   override async phase2 () {
     this.requireAdmin()
-    let doc = await this.cache.getDoc('ADMIN$Status', { svc: this._svc }) as ADMIN$Status | undefined
+    const _svc = this.svc
+    this.svc = 'ADMIN'
+    let doc = await this.cache.getDoc('Status', { svc: this._svc }) as ADMIN$Status | undefined
     if (doc) doc._status = DocStatus.UPD
-    else doc = await this.cache.putDoc('ADMIN$Status', { svc: this._svc }, true) as ADMIN$Status
+    else doc = await this.cache.putDoc('Status', { svc: this._svc }, true) as ADMIN$Status
+    this.svc = _svc
     doc.at = Date.now()
     doc.st = this._st
     doc.txt = this._txt || ''
@@ -99,7 +105,8 @@ class ADMIN$getAllStatus extends Operation {
     for(const svc of Object.keys(this._status)) {
       if (svc === '$ST$') continue
       const obj = this._status[svc]
-      const s = await this.cache.getDoc('ADMIN$Status', { svc: svc}, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+      this.svc = 'ADMIN'
+      const s = await this.cache.getDoc('Status', { svc: svc }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
       if (!s) {
         obj.st = 0
       } else {
@@ -109,8 +116,9 @@ class ADMIN$getAllStatus extends Operation {
           for(const org of Object.keys(obj)) {
             if (org === '$ST$') continue
             this.org = org
+            this.svc = svc
             if (this.dbConnector) await this.dbConnector.getConnexion(this, this.org)
-            const cio = await this.cache.getDoc(svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+            const cio = await this.cache.getDoc('Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
             if (!cio) obj[org] = 0
             else obj[org] = cio.st
           }
@@ -282,7 +290,10 @@ class FW$getStatus extends Operation {
     this._svc = this.stringValue('svc', true)
   }
   override async phase2 () {
-    const s = await this.cache.getDoc(this._svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+    const _svc = this.svc
+    this.svc = this._svc
+    const s = await this.cache.getDoc('Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+    this.svc = _svc
     if (!s) this.setRes('status', { st: 0, at: 0, txt: '' })
     else this.setRes('status', { st: s.st, at: s.at, txt: s.txt})
   }
@@ -306,9 +317,12 @@ class FW$setStatus extends Operation {
   }
   override async phase2 () {
     this.requireAdmin()
-    let doc = await this.cache.getDoc(this._svc + '$Status', { pk: '1' }) as ADMIN$Status | undefined
+    const _svc = this.svc
+    this.svc = this._svc
+    let doc = await this.cache.getDoc('Status', { pk: '1' }) as ADMIN$Status | undefined
     if (doc) doc._status = DocStatus.UPD
-    else doc = await this.cache.putDoc(this._svc + '$Status', { pk: '1' }, true) as ADMIN$Status | undefined
+    else doc = await this.cache.putDoc('Status', { pk: '1' }, true) as ADMIN$Status | undefined
+    this.svc = _svc
     if (doc) {
       doc.at = Date.now()
       doc.st = this._st

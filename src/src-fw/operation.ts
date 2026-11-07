@@ -423,11 +423,15 @@ export class AuthRecord {
   }
 
   async getSvcOrgStatus () : Promise<number> {
-    const ast = await this.op.cache.getDoc('ADMIN$Status', { svc: this.op.svc }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+    if (!this.op.svc) return 0
+    const _svc = this.op.svc
+    this.op.svc = 'ADMIN'
+    const ast = await this.op.cache.getDoc('Status', { svc: _svc }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+    this.op.svc = _svc
     if (!ast) return 0
     if (ast.st !== 1) return ast.st
 
-    const sst = await this.op.cache.getDoc(this.op.svc + '$Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
+    const sst = await this.op.cache.getDoc('Status', { pk: '1' }, config.STATUSLAZYNESS) as ADMIN$Status | undefined
     if (!sst) return 0
     return sst.st
   }
@@ -682,6 +686,7 @@ export class Cache {
     }
     doc._status = DocStatus.NONE
     doc.setBefore()
+    ci.doc = doc
     ci.row = row
     this.docs.set(k, ci)
     return doc
