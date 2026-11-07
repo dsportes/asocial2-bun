@@ -1061,6 +1061,7 @@ export class SQLiteConnexion extends DBabstract {
       + (limit ? ' LIMIT ' + limit : '') + ';'
     const stmt = this.sql.query(x)
     const docs = stmt.all({ $org: this.org, $col: col })
+    // console.log(stmt.toString())
     for (let doc of docs) {
       const row = this.rowToAPP(clazz, doc as rowDB, adm ? '' : (this.org || ''))
       if (!row.deleted) await fn(row.data)

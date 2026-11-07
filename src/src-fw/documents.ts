@@ -118,7 +118,8 @@ export class $Subs extends $Document {
   static async getSessionIds (op: Operation, def: string) : Promise<Set<string>> {
     const sids : Set<string> = new Set()
     const val = Crypt.shaS(def)
-    if (op.db) await op.db.selectDocs(op.svc + '$Subs', 'defs', filter.CONTAINS, [val], '', 0, 
+    const n = (op.svc + '$Subs').toUpperCase()
+    if (op.db) await op.db.selectDocs(n, 'defs', filter.CONTAINS, [val], '', 0, 
       (data: Uint8Array) => {
         const d: any = decode(data)
         sids.add(d['sessionId'])
@@ -274,8 +275,12 @@ export class $Credential extends $Document {
     const lst: $Cred[] = []
     const sel: string[] | undefined = config.MANAGERS.get(op.svc)
     if (!sel) return lst
-      
-    if (op.db) await op.db.selectDocs(op.svc + '$Credential', 'doc', filter.IN, sel, '', 0, 
+    const d = Registry.getDescriptor(op.svc, 'Credential')
+    const selh: string[] = []
+    for(const x of sel) 
+      selh.push(d.getIdx({ docCl: x, docPk: '1' }, 'doc'))
+    const n = (op.svc + '$Credential').toUpperCase()
+    if (op.db) await op.db.selectDocs(n, 'doc', filter.IN, selh, '', 0, 
       (bin: Uint8Array) => {
         try {
           const c: any = decode(bin)
@@ -305,8 +310,8 @@ export class $Credential extends $Document {
     if (!d) return lst
     const docPk = d.pkValue(src)
     const val = d.getIdx({ docCl, docPk }, 'doc')
-
-    if (op.db) await op.db.selectDocs(op.svc + '$Credential', 'doc', filter.EQ, val[0], '', 0, 
+    const n = (op.svc + '$Credential').toUpperCase()
+    if (op.db) await op.db.selectDocs(n, 'doc', filter.EQ, val[0], '', 0, 
       (bin: Uint8Array) => {
         try {
           const c: any = decode(bin)
@@ -521,7 +526,8 @@ export class $Form extends $Document {
   */
   static async filteredList (op: Operation, f: string[]) : Promise<$FormObj[]> {    
     const l: $FormObj[] = []
-    if (op.db) await op.db.selectDocs(op.svc + '$Form', 'creds', filter.CONTAINS, f, '', 0, 
+    const n = (op.svc + '$Form').toUpperCase()
+    if (op.db) await op.db.selectDocs(n, 'creds', filter.CONTAINS, f, '', 0, 
       async (bin: Uint8Array) => {
       const obj = decode(bin) as $FormObj
       const f = $Form.new(obj, op.svc, op.org) as $Form

@@ -114,7 +114,7 @@ export class AS2$Auteur extends $Document {
   static async autidDeNom (op: Operation, nom: string) : Promise<string> {
     const org = op.org
     let autid = ''
-    if (nom.length && op.db) await op.db.selectDocs('AS2$Auteur', 'nom', filter.EQ, nom, '', 1, 
+    if (nom.length && op.db) await op.db.selectDocs('AS2$AUTEUR', 'nom', filter.EQ, nom, '', 1, 
       (bin: Uint8Array) => {
         try {
           const c: any = decode(bin)
