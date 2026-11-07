@@ -145,7 +145,7 @@ export class Publisher implements AbstractOperation {
   async doSids (def: string) : Promise<void> {
     const sessionIds = await $Subs.getSessionIds(this.op, def)
     if (sessionIds.size) for(const sessionId of sessionIds) {
-      const subs = !this.op.cache ? null : (await this.op.cache.getDoc(this.op.svc + '$Subs', { sessionId }) as unknown) as $Subs
+      const subs = !this.op.cache ? null : (await this.op.cache.getDoc('Subs', { sessionId }) as unknown) as $Subs
       if (!subs) return // cette session n'a pas de souscription
       if (subs.defs.indexOf(def) === -1) return // cette session n'a pas (encore) de souscription à notifier
 

@@ -207,7 +207,7 @@ export class $CredTempl {
     const ec = this.toEmbedCred()
     const d = Registry.getDescriptor(op.svc, this.docCl)
     if (d.embedCreds) {
-      const doc = !op.cache ? undefined : await op.cache.getDoc(d.fullName, { pk: this.docPk })
+      const doc = !op.cache ? undefined : await op.cache.getDoc(this.docCl, { pk: this.docPk })
       if (!doc) return undefined
       if (!doc.embedCreds) doc.embedCreds = {}
       doc.embedCreds[this.credId] = ec
@@ -216,7 +216,7 @@ export class $CredTempl {
       return doc
     } 
     const maxLife = ec.props['limit'] || 0
-    let doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$Credential', 
+    let doc = !op.cache ? undefined : await op.cache.getDoc('Credential', 
       { credId: this.credId, docCl: this.docCl }) as $Credential
     if (doc) {
       doc.maxLife = maxLife
@@ -229,7 +229,7 @@ export class $CredTempl {
       doc._status = DocStatus.UPD
     } else {
       const obj = { credId: this.credId, docCl: this.docCl, docPk: this.docPk, maxLife, cred: ec }
-      doc = !op.cache ? undefined : await op.cache.putDoc(op.svc + '$Credential', obj, true) as $Credential | undefined
+      doc = !op.cache ? undefined : await op.cache.putDoc('Credential', obj, true) as $Credential | undefined
     }
     return doc
   }
@@ -256,12 +256,12 @@ export class $Credential extends $Document {
     const dt = Registry.getDescriptor(op.svc, docCl)
     let doc
     if (dt.embedCreds) {
-      doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$' + docCl, { pk: docPk }) as $Document
+      doc = !op.cache ? undefined : await op.cache.getDoc(docCl, { pk: docPk }) as $Document
       if (!doc || !doc.embedCreds || !doc.embedCreds[credId]) return undefined
       const cred = doc.embedCreds[credId]
       cred.props = props
     } else {
-      doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$Credential', { credId, docCl }) as $Credential
+      doc = !op.cache ? undefined : await op.cache.getDoc('Credential', { credId, docCl }) as $Credential
       if (!doc) return undefined
       doc.maxLife = props['limit'] || 0
       if (doc.cred) doc.cred.props = props
@@ -340,7 +340,7 @@ export class $Credential extends $Document {
     const d = Registry.getDescriptor(op.svc, 'Credential')
     if (!d) return lst
     const pk = d.pkValue(src)
-    const doc = !op.cache ? undefined : await op.cache.getDoc(op.svc + '$' + docCl, { pk })
+    const doc = !op.cache ? undefined : await op.cache.getDoc(docCl, { pk })
     const creds: $Cred[] = doc && doc.embedCreds ? Array.from(doc.embedCreds.values()) : []
 
     for (const c of creds)

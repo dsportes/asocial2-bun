@@ -64,7 +64,7 @@ class MajAuteur extends Operation {
     if (!c || c.isSuspended) {
       c = this.getCredRef('Auteur', this._autpk, true, true)
     }
-    const aut = await this.cache.getDoc('AS2$Auteur', { pk: this._autpk }) as AS2$Auteur
+    const aut = await this.cache.getDoc('Auteur', { pk: this._autpk }) as AS2$Auteur
     if (!aut) { this.setRes('status', 1); return }
     let m = false
     if (this._nomAuteur && this._nomAuteur !== aut.nomAuteur) {

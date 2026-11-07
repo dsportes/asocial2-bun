@@ -65,7 +65,7 @@ class AS2$Form_coauteur extends AS2$Form {
   override async validate (op: Operation, newDocs: $Document[]) : Promise<number> { 
     const autid = await AS2$Auteur.autidDeNom(op, this.opts.auteur.nomAuteur)
     if (autid !== this.opts.auteur.autid) return  102
-    const doc = await op.cache.getDoc('AS2$Auteur', { autid } ) as AS2$Auteur | undefined
+    const doc = await op.cache.getDoc('Auteur', { autid } ) as AS2$Auteur | undefined
     if (doc) {
       doc.embedCred(this.opts.credTemplates)
       newDocs.push(doc)

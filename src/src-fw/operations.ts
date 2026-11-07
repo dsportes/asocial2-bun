@@ -208,7 +208,7 @@ class FW$setSubscription extends Operation {
   override async phase2 () {
     this.requireAuth()
     this.requireR()
-    const subs = await this.cache.getDoc(this.svc + '$Subs', { sessionId: this.sessionId }) as $Subs
+    const subs = await this.cache.getDoc('Subs', { sessionId: this.sessionId }) as $Subs
 
     if (this._subs.defs && this._subs.defs.length) { // Création ou mise à jour
       if (subs) { // Mise à jour
@@ -254,7 +254,7 @@ class FW$setSubscription extends Operation {
           msgs: this._subs.msgs || null,
           maxLife : this._maxLife
         }
-        this.cache.putDoc(this.svc + '$Subs', initVals, true)
+        this.cache.putDoc('Subs', initVals, true)
       }
     } else { // suppression de la subscription pour sessionId
       if (subs) subs._status = DocStatus.DEL
@@ -582,7 +582,7 @@ class AutoRevokeCred extends Operation {
       if (x) delete x[this._credId]
       if (d) d._status = DocStatus.UPD
     } else {
-      const c = await this.cache.getDoc('$Credential', { credId: this._credId }) as $Credential
+      const c = await this.cache.getDoc('Credential', { credId: this._credId }) as $Credential
       if (c) this.cache.delDoc('$Credential', c.myPk)
     }
   }
@@ -644,7 +644,7 @@ class MDEventFull extends Operation {
     this._ch = this.stringValue('ch', true)
   }
   override async phase2 () {
-    const f = await this.cache.getDoc(this.svc + '$Form', 
+    const f = await this.cache.getDoc('Form', 
       { formId: this._eventId, type: this._type }) as $Form
     if (f && f.ch === this._ch) {
       f.setMaxLife()
@@ -677,7 +677,7 @@ class MDEventSync extends Operation {
     this._chk = this.stringValue('chk', true)
   }
   override async phase2 () {
-    const f = await this.cache.getDoc(this.svc + '$Form', 
+    const f = await this.cache.getDoc('Form', 
       { formId: this._eventId, type: this._type }) as $Form
     if (f && f.chk(this) === this._chk && !f.isOld) {
       const x = { 
@@ -707,10 +707,10 @@ class FormCreateByU extends Operation {
 
   override async phase2 () {
     this.requireAuth()
-    let f = await this.cache.getDoc(this.svc + '$Form', this._formObj) as $Form
+    let f = await this.cache.getDoc('Form', this._formObj) as $Form
     if (f) 
       { this.setRes('status', 1); return }
-    f = await this.cache.putDoc(this.svc + '$Form', this._formObj, true) as $Form
+    f = await this.cache.putDoc('Form', this._formObj, true) as $Form
     f.maxLife = Math.floor(this.now / 1000) + 10
     f.status = 1
     f.msgT = null
@@ -736,10 +736,10 @@ class FormCreateByT extends Operation {
 
   override async phase2 () {
     this.requireAuth()
-    let f = await this.cache.getDoc(this.svc + '$Form', this._formObj) as $Form
+    let f = await this.cache.getDoc('Form', this._formObj) as $Form
     if (f) 
       { this.setRes('status', 1); return }
-    f = await this.cache.putDoc(this.svc + '$Form', this._formObj, true) as $Form
+    f = await this.cache.putDoc('Form', this._formObj, true) as $Form
     f.maxLife = Math.floor(this.now / 1000) + 10
     f.status = 2
     f.msgU = null
@@ -768,7 +768,7 @@ class FormUpdByU extends Operation {
 
   override async phase2 () {
     this.requireAuth()
-    const f = await this.cache.getDoc(this.svc + '$Form',
+    const f = await this.cache.getDoc('Form',
       { formId: this._formId, type: this._type }) as $Form
     if (!f || f.isOld) 
       { this.setRes('status', 1); return }
@@ -802,7 +802,7 @@ class FormUpdByT extends Operation {
 
   override async phase2 () {
     this.requireAuth()
-    const f = await this.cache.getDoc(this.svc + '$Form', 
+    const f = await this.cache.getDoc('Form', 
       { formId: this._formId, type: this._type }) as $Form
     if (!f || f.isOld) 
       { this.setRes('status', 1); return }
@@ -832,7 +832,7 @@ class FormCancel extends Operation {
 
   override async phase2 () {
     this.requireAuth()
-    const f = await this.cache.getDoc(this.svc + '$Form', 
+    const f = await this.cache.getDoc('Form', 
       { formId: this._formId, type: this._type }) as $Form
     if (!f || f.isOld) 
       { this.setRes('status', 1); return }
@@ -871,7 +871,7 @@ class ValidateForm extends Operation {
 
   override async phase2 () : Promise<void> {
     this.requireAuth()
-    const f = await this.cache.getDoc(this.svc + '$Form', 
+    const f = await this.cache.getDoc('Form', 
       { formId: this._formId, type: this._type }) as $Form
     if (!f || f.isOld) 
       { this.setRes('status', 1); return }
@@ -984,7 +984,7 @@ class FormGet extends Operation {
   }
   override async phase2 () {
     this.requireAuth()
-    const f = await this.cache.getDoc(this.svc + '$Form', 
+    const f = await this.cache.getDoc('Form', 
       { formId: this._formId, type: this._type }) as $Form
     if (!f || f.isOld) 
       { this.setRes('status', 1); return }

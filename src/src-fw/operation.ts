@@ -478,7 +478,7 @@ export class AuthRecord {
           if (ec) credRef = new CredRef(d, ec, true)
         }
       } else { // Recherche du Credential par sa pk
-        const c = !this.op.cache ? null : await this.op.cache.getDoc('$Credential', { credId, docCl }) as $Credential
+        const c = !this.op.cache ? null : await this.op.cache.getDoc('Credential', { credId, docCl }) as $Credential
         if (c && c.docCl === docCl && c.docPk === docPk) {
           if (c.cred) {
             credRef = new CredRef(c, c.cred, false)
