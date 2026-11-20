@@ -5,7 +5,7 @@ import config from '../config'
 import { AppExc } from './base'
 import type { AbstractOperation } from './types'
 import { Registry } from './registry'
-import { Crypt } from './crypt'
+import { Crypt, derToRaw } from './crypt'
 import { keyFromB64, keyToB64 } from './b64'
 import { Util } from './util'
 import type { Safe, Alias } from './DBabstract'
@@ -220,11 +220,10 @@ class $OpenSafeByPin extends SafeOperation {
     // vérifie par `Va` que `sign` est bien la signature de pincx 
     const V = keyFromB64(dev.Va)
     // Rétablit la signature en EC - ce que ne fait pas la version PHP
-    const s1 = keyFromB64(dev.sign)
-    const sign = Crypt.signFromAsn1(s1)
-    console.log('PINCX !!!!!!!!!!!!!!!!!!!!!!!!!! ', pincx)
+    const der = keyFromB64(dev.sign)
+    const raw = derToRaw(der, 66)
     const pcb = keyFromB64(pincx)
-    const ok = await Crypt.verify(V, sign, pcb)
+    const ok = await Crypt.verify(V, raw, pcb)
     
     if (!ok) {
       dev.nbe++

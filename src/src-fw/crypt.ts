@@ -1,7 +1,4 @@
 import crypto from 'crypto'
-// @ts-ignore
-// import rsa from 'jsrsasign'
-import { KJUR } from './dsportes_jsrsasign.mjs'
 import Log from './log'
 import { keyToB64 } from './b64'
 
@@ -133,8 +130,6 @@ export class Crypt {
       hash: {name: "SHA-256"} },
     rsasv: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256'},
   }
-  // static alg = 'rsa'
-  static alg = 'ecdsa'
 
   /* CRYPTO.SUBTLE
   Le authTag est généré sans laisser le choix 
@@ -184,7 +179,7 @@ export class Crypt {
   }
 
   static async getSVKeyPair () : Promise<KeyPair> {
-    const p = await crypto.subtle.generateKey(Crypt.algs[Crypt.alg], true, ['sign', 'verify'])
+    const p = await crypto.subtle.generateKey(Crypt.algs.ecdsa, true, ['sign', 'verify'])
     const spki = await crypto.subtle.exportKey('spki', p.publicKey)
     const pkcs8 = await crypto.subtle.exportKey('pkcs8', p.privateKey)
     return { pub: spki, priv: pkcs8 }
@@ -205,30 +200,14 @@ export class Crypt {
   }
 
   static async sign (privKey: Buffer, data: Uint8Array) : Promise<Uint8Array> {
-    const priv = await crypto.subtle.importKey('pkcs8', privKey as NodeJS.BufferSource, Crypt.algs[Crypt.alg], false, ['sign'])
-    const sign = await crypto.subtle.sign(Crypt.algs[Crypt.alg + 'sv'], priv, data as NodeJS.BufferSource)
+    const priv = await crypto.subtle.importKey('pkcs8', privKey as NodeJS.BufferSource, Crypt.algs.ecdsa, false, ['sign'])
+    const sign = await crypto.subtle.sign(Crypt.algs.ecdsasv, priv, data as NodeJS.BufferSource)
     return new Uint8Array(sign)
   }
 
-  static signToAsn1 (sign: Uint8Array) : Uint8Array {
-    const x1 = u8ToHex(sign)
-    // const x2 = rsa.KJUR.crypto.ECDSA.concatSigToASN1Sig(x1)
-    // @ts-expect-error
-    const x2 = KJUR.crypto.ECDSA.concatSigToASN1Sig(x1)
-    return new Uint8Array(hexToArrayBuffer(x2))
-  }
-
-  static signFromAsn1 (sign: Uint8Array) : Uint8Array {
-    const x1 = u8ToHex(sign)
-    // const x2 = rsa.KJUR.crypto.ECDSA.asn1SigToConcatSig(x1)
-    // @ts-expect-error
-    const x2 = KJUR.crypto.ECDSA.asn1SigToConcatSig(x1)
-    return new Uint8Array(hexToArrayBuffer(x2))
-  }
-
   static async verify (pubKey: Buffer, signature: Uint8Array, data: Uint8Array) : Promise<boolean> {
-    const pub = await crypto.subtle.importKey('spki', pubKey as NodeJS.BufferSource, Crypt.algs[Crypt.alg], true, ['verify'])
-    return await crypto.subtle.verify(Crypt.algs[Crypt.alg + 'sv'], pub, signature as NodeJS.BufferSource, data as NodeJS.BufferSource)
+    const pub = await crypto.subtle.importKey('spki', pubKey as NodeJS.BufferSource, Crypt.algs.ecdsa, true, ['verify'])
+    return await crypto.subtle.verify(Crypt.algs.ecdsasv, pub, signature as NodeJS.BufferSource, data as NodeJS.BufferSource)
   }
 
   /* Hash PBKFD2 d'une "pass phrase" en deux morceaux (équivelent à login / password).
@@ -316,6 +295,95 @@ static async strongHash (s: string | Uint8Array, pad?: boolean, bin?: boolean)
   }
 }
 
+
+/* 
+  DER : format WebCrypto
+  RAW : format ASN-1 OpenSSL
+*/
+
+/**
+ * Convertit une signature ECDSA brute (IEEE P1363 : r || s) en format ASN.1 DER.
+ * @param {Uint8Array} rawSig - La signature brute (ex: 64 octets pour P-256)
+ * @returns {Uint8Array} La signature encodée en DER
+ */
+export function rawToDer(rawSig: any) {
+  const half = rawSig.length / 2;
+  const r = rawSig.subarray(0, half);
+  const s = rawSig.subarray(half);
+
+  const encodeInteger = (bytes: any) => {
+    let i = 0;
+    while (i < bytes.length - 1 && bytes[i] === 0) i++;
+    let clean = bytes.subarray(i);
+
+    // Ajout du zéro de padding si le bit de poids fort est >= 0x80
+    if (clean[0] >= 0x80) {
+      const padded = new Uint8Array(clean.length + 1);
+      padded[0] = 0x00;
+      padded.set(clean, 1);
+      clean = padded;
+    }
+
+    const res = new Uint8Array(2 + clean.length);
+    res[0] = 0x02; // Tag INTEGER
+    res[1] = clean.length;
+    res.set(clean, 2);
+    return res;
+  };
+
+  const rDer = encodeInteger(r);
+  const sDer = encodeInteger(s);
+  const totalLen = rDer.length + sDer.length;
+
+  const header = totalLen >= 128 ? [0x30, 0x81, totalLen] : [0x30, totalLen];
+  const der = new Uint8Array(header.length + totalLen);
+  
+  der.set(header, 0);
+  der.set(rDer, header.length);
+  der.set(sDer, header.length + rDer.length);
+
+  return der;
+}
+
+// 66 pour P-521 !!!
+// Code Google IA
+export function derToRaw(derSig: any, keySizeBytes = 66) {
+  let offset = 0;
+
+  if (derSig[offset++] !== 0x30) {
+    throw new Error("Format DER invalide : tag SEQUENCE (0x30) attendu.");
+  }
+
+  offset += derSig[offset] === 0x81 ? 2 : 1;
+
+  const readInteger = () => {
+    if (derSig[offset++] !== 0x02) {
+      throw new Error("Format DER invalide : tag INTEGER (0x02) attendu.");
+    }
+    const len = derSig[offset++];
+    let val = derSig.subarray(offset, offset + len);
+    offset += len;
+
+    // Retrait du padding 0x00 éventuel
+    if (val.length === keySizeBytes + 1 && val[0] === 0x00) {
+      val = val.subarray(1);
+    }
+
+    const fixed = new Uint8Array(keySizeBytes);
+    fixed.set(val, keySizeBytes - val.length);
+    return fixed;
+  };
+
+  const r = readInteger();
+  const s = readInteger();
+
+  const raw = new Uint8Array(keySizeBytes * 2);
+  raw.set(r, 0);
+  raw.set(s, keySizeBytes);
+
+  return raw;
+}
+
 export async function testSH () {
   const x = 'toto est tres tres beau'
   Log.info(Crypt.sha(x))
@@ -358,18 +426,18 @@ export async function testECDH () {
   Log.info(appSVPub)
   Log.info(appSVPriv)
   const sign = await Crypt.sign(appSVPair.priv, x)
-  const signAsn1 = Crypt.signToAsn1(sign)
-  const sign2 = Crypt.signFromAsn1(signAsn1)
+  const der = rawToDer(sign)
+  const raw = derToRaw(der, 66)
   const h1 = u8ToHex(sign)
-  const h2 = u8ToHex(signAsn1)
-  Log.info('---- EC / ASN1 -------')
-  Log.info(h1)
-  Log.info(h2)
-  Log.info('----------------------')
-  const h3 = u8ToHex(sign2)
+  const h2 = u8ToHex(der)
+  console.log('---- EC / ASN1 -------')
+  console.log(h1)
+  console.log(h2)
+  console.log('----------------------')
+  const h3 = u8ToHex(raw)
   if (h1 === h3)
-    Log.info('trop cool !!!')
-  else Log.info('TOO BAD !!!')
+    console.log('trop cool !!!')
+  else console.log('TOO BAD !!!')
   
   // Dans srv
   const verif1 = await Crypt.verify(fromPem(appSVPub, true), sign, x)
