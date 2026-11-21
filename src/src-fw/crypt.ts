@@ -293,95 +293,95 @@ static async strongHash (s: string | Uint8Array, pad?: boolean, bin?: boolean)
     const s1 = (nbytes % 3) === 0 ? s : s.replace(/=/g, '2')
     return s1.replace(/\+/g, '0').replace(/\//g, '1')
   }
-}
 
 
-/* 
-  DER : format WebCrypto
-  RAW : format ASN-1 OpenSSL
-*/
+  /* 
+    DER : format WebCrypto
+    RAW : format ASN-1 OpenSSL
+  */
 
-/**
- * Convertit une signature ECDSA brute (IEEE P1363 : r || s) en format ASN.1 DER.
- * @param {Uint8Array} rawSig - La signature brute (ex: 64 octets pour P-256)
- * @returns {Uint8Array} La signature encodée en DER
- */
-export function rawToDer(rawSig: any) {
-  const half = rawSig.length / 2;
-  const r = rawSig.subarray(0, half);
-  const s = rawSig.subarray(half);
+  /**
+   * Convertit une signature ECDSA brute (IEEE P1363 : r || s) en format ASN.1 DER.
+   * @param {Uint8Array} rawSig - La signature brute (ex: 64 octets pour P-256)
+   * @returns {Uint8Array} La signature encodée en DER
+   */
+  static rawToDer(rawSig: any) {
+    const half = rawSig.length / 2;
+    const r = rawSig.subarray(0, half);
+    const s = rawSig.subarray(half);
 
-  const encodeInteger = (bytes: any) => {
-    let i = 0;
-    while (i < bytes.length - 1 && bytes[i] === 0) i++;
-    let clean = bytes.subarray(i);
+    const encodeInteger = (bytes: any) => {
+      let i = 0;
+      while (i < bytes.length - 1 && bytes[i] === 0) i++;
+      let clean = bytes.subarray(i);
 
-    // Ajout du zéro de padding si le bit de poids fort est >= 0x80
-    if (clean[0] >= 0x80) {
-      const padded = new Uint8Array(clean.length + 1);
-      padded[0] = 0x00;
-      padded.set(clean, 1);
-      clean = padded;
-    }
+      // Ajout du zéro de padding si le bit de poids fort est >= 0x80
+      if (clean[0] >= 0x80) {
+        const padded = new Uint8Array(clean.length + 1);
+        padded[0] = 0x00;
+        padded.set(clean, 1);
+        clean = padded;
+      }
 
-    const res = new Uint8Array(2 + clean.length);
-    res[0] = 0x02; // Tag INTEGER
-    res[1] = clean.length;
-    res.set(clean, 2);
-    return res;
-  };
+      const res = new Uint8Array(2 + clean.length);
+      res[0] = 0x02; // Tag INTEGER
+      res[1] = clean.length;
+      res.set(clean, 2);
+      return res;
+    };
 
-  const rDer = encodeInteger(r);
-  const sDer = encodeInteger(s);
-  const totalLen = rDer.length + sDer.length;
+    const rDer = encodeInteger(r);
+    const sDer = encodeInteger(s);
+    const totalLen = rDer.length + sDer.length;
 
-  const header = totalLen >= 128 ? [0x30, 0x81, totalLen] : [0x30, totalLen];
-  const der = new Uint8Array(header.length + totalLen);
-  
-  der.set(header, 0);
-  der.set(rDer, header.length);
-  der.set(sDer, header.length + rDer.length);
+    const header = totalLen >= 128 ? [0x30, 0x81, totalLen] : [0x30, totalLen];
+    const der = new Uint8Array(header.length + totalLen);
+    
+    der.set(header, 0);
+    der.set(rDer, header.length);
+    der.set(sDer, header.length + rDer.length);
 
-  return der;
-}
-
-// 66 pour P-521 !!!
-// Code Google IA
-export function derToRaw(derSig: any, keySizeBytes = 66) {
-  let offset = 0;
-
-  if (derSig[offset++] !== 0x30) {
-    throw new Error("Format DER invalide : tag SEQUENCE (0x30) attendu.");
+    return der;
   }
 
-  offset += derSig[offset] === 0x81 ? 2 : 1;
+  // 66 pour P-521 !!!
+  // Code Google IA
+  static derToRaw(derSig: any, keySizeBytes = 66) {
+    let offset = 0;
 
-  const readInteger = () => {
-    if (derSig[offset++] !== 0x02) {
-      throw new Error("Format DER invalide : tag INTEGER (0x02) attendu.");
-    }
-    const len = derSig[offset++];
-    let val = derSig.subarray(offset, offset + len);
-    offset += len;
-
-    // Retrait du padding 0x00 éventuel
-    if (val.length === keySizeBytes + 1 && val[0] === 0x00) {
-      val = val.subarray(1);
+    if (derSig[offset++] !== 0x30) {
+      throw new Error("Format DER invalide : tag SEQUENCE (0x30) attendu.");
     }
 
-    const fixed = new Uint8Array(keySizeBytes);
-    fixed.set(val, keySizeBytes - val.length);
-    return fixed;
-  };
+    offset += derSig[offset] === 0x81 ? 2 : 1;
 
-  const r = readInteger();
-  const s = readInteger();
+    const readInteger = () => {
+      if (derSig[offset++] !== 0x02) {
+        throw new Error("Format DER invalide : tag INTEGER (0x02) attendu.");
+      }
+      const len = derSig[offset++];
+      let val = derSig.subarray(offset, offset + len);
+      offset += len;
 
-  const raw = new Uint8Array(keySizeBytes * 2);
-  raw.set(r, 0);
-  raw.set(s, keySizeBytes);
+      // Retrait du padding 0x00 éventuel
+      if (val.length === keySizeBytes + 1 && val[0] === 0x00) {
+        val = val.subarray(1);
+      }
 
-  return raw;
+      const fixed = new Uint8Array(keySizeBytes);
+      fixed.set(val, keySizeBytes - val.length);
+      return fixed;
+    };
+
+    const r = readInteger();
+    const s = readInteger();
+
+    const raw = new Uint8Array(keySizeBytes * 2);
+    raw.set(r, 0);
+    raw.set(s, keySizeBytes);
+
+    return raw;
+  }
 }
 
 export async function testSH () {
@@ -426,8 +426,8 @@ export async function testECDH () {
   Log.info(appSVPub)
   Log.info(appSVPriv)
   const sign = await Crypt.sign(appSVPair.priv, x)
-  const der = rawToDer(sign)
-  const raw = derToRaw(der, 66)
+  const der = Crypt.rawToDer(sign)
+  const raw = Crypt.derToRaw(der, 66)
   const h1 = u8ToHex(sign)
   const h2 = u8ToHex(der)
   console.log('---- EC / ASN1 -------')

@@ -252,7 +252,7 @@ const server = Bun.serve({
         r = checkOrigin(req)
         if (r) return r
         const url = new URL(req.url)
-        const baseUrl = url.protocol + '://' + url.host
+        const baseUrl = url.protocol + '//' + url.host
         const body = await req.bytes()
         return cors(await doOp(body, baseUrl))
       },
