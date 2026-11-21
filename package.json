@@ -10,17 +10,18 @@
     "server": "bun run --inspect-wait=localhost:4000/ src/server.ts",
     "schemaSqlite": "bun run --inspect-wait=localhost:4000/ src/fw/tools.ts genSchema --dbType sqlite",
     "ok": "bun run --inspect-wait=localhost:4000/ src/index.ts",
-    "wptest": "bun run --inspect-wait=localhost:4000/ src/fw/tools.ts wptest"
+    "wptest": "bun run --inspect-wait=localhost:4000/ src/src-fw/tools.ts wptest"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/web-push": "^3.6.4"
   },
   "peerDependencies": {
     "typescript": "^7"
   },
   "dependencies": {
-    "@mmmike/web-push": "^1.3.0",
     "@msgpack/msgpack": "^3.1.3",
+    "web-push": "^4.0.0",
     "winston": "^3.19.0"
   }
 }

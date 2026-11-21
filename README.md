@@ -1,23 +1,19 @@
 # asocial2-bun
 
-To install dependencies:
+### Test de web-push
+Lancer asocial2-pwa
 
-```bash
-bun install
-```
+Récupérer dans le log le "subs token OK: {....}"
 
-To run:
+Dans /src/src-fw/tools, recopier le texte {...}
+dans la constante subsJSON =
 
-```bash
-bun run index.ts
-```
+Lancer le tool:
 
-To type check:
+npm run wptest
 
-```bash
-bun check
-```
+Lancer le debug "Attach Bun".
 
-This project was created using `bun init` in bun v1.4.3. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+L'arrivée du web-push côté application est une ligne de log.
 
-toto de Pruillé
+L'objet correspondant peut être lu dans my-register-sw autour de la ligne 70.

@@ -1,5 +1,5 @@
-// import webpush from 'web-push'
-import { sendPushNotification, WebPushError } from '@mmmike/web-push/send'
+import * as webpush from 'web-push'
+// import { sendPushNotification, WebPushError } from '@mmmike/web-push/send'
 import { encode } from '@msgpack/msgpack'
 
 import Log from './log'
@@ -30,11 +30,13 @@ type notif = {
   // { def1:msg1, def2:'' ... } liste les defs souscrites par la sessionId à notifier.
 }
 
+/*
 const vapid = { 
   publicKey: config.keys['vapid_public_key'],
   privateKey: config.keys['vapid_private_key'], 
   subject: "mailto:admin@example.com"
 }
+*/
 
 /* Un "publisher" est créé pour chaque opération.
 Il a une entrée par sessionId devant être notifiée.
@@ -169,12 +171,15 @@ export class Publisher implements AbstractOperation {
       try {
         const message = await this.buildMessage(notif, sessionId)
         const buf = Publisher.objToB64(message)
-        // await webpush.sendNotification(notif.sub, buf, { TTL: 0 })
+        // @ts-expect-error
+        await webpush.sendNotification(notif.sub, buf, { TTL: 0 })
+        /*
         const delivered = await sendPushNotification(
           JSON.parse(notif.sub), // PushSubscriptionData from the client
           { title: message.title, body: buf, url: message.url },
           vapid
         )
+        */
       } catch (error: any) {
         Log.error('sendNotification: ' + error.toString())
       }

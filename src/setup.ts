@@ -14,7 +14,7 @@ Si web-push peut être importé, sa configuration est fixée
 */
 
 import { exit } from 'process'
-// import webpush from 'web-push'
+import * as webpush from 'web-push'
 import config from './config.ts'
 // import Log from './src-fw/log.ts'
 import { AppSQLiteConnector } from './app/AppDBsqlite.ts'
@@ -56,6 +56,6 @@ export const setup = () => {
 
   if (exc) throw exc
 
-  // webpush.setVapidDetails('https://example.com/', config.keys['vapid_public_key'], config.keys['vapid_private_key'])
+  webpush.setVapidDetails('https://example.com/', config.keys['vapid_public_key'], config.keys['vapid_private_key'])
 
 }

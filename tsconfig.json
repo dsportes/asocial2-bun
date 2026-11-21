@@ -10,6 +10,7 @@
     "types": ["bun"],
 
     // Bundler mode
+    "esModuleInterop": true,
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
