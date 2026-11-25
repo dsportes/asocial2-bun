@@ -701,7 +701,6 @@ export class Cache {
   async putDoc (docCl: string, data: any, newDoc: boolean, assert?: string) 
   : Promise<$Document | undefined> {
     let pk: string = '?'
-    let descriptor: Descriptor
     try {
       const doc = await $Document.newDocument(this.op.svc, docCl, data) as $Document
       const descriptor = doc.descriptor
@@ -774,7 +773,7 @@ export class Cache {
         else db.deleteRow(d.dbName, ci.pk)
       }
       if (d.sync && d.colls) {
-        const is = this.op.impactedSubs.getEntry(d.dbName, ci.pk)
+        const is = this.op.impactedSubs.getEntry(d.docCl, ci.pk)
         if (ci.row && d.colls) 
           this.manageColls(db, doc, ci.row, d, is)
       }

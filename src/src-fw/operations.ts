@@ -254,7 +254,7 @@ class FW$setSubscription extends Operation {
           msgs: this._subs.msgs || null,
           maxLife : this._maxLife
         }
-        this.cache.putDoc('Subs', initVals, true)
+        await this.cache.putDoc('Subs', initVals, true)
       }
     } else { // suppression de la subscription pour sessionId
       if (subs) subs._status = DocStatus.DEL
